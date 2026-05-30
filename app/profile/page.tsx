@@ -11,69 +11,98 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 
-const DUMMY_MY_SERVICES = [
-  {
-    id: '1',
-    title: 'Jasa Install Ulang OS & Setup Software',
-    category: 'Teknologi',
-    price_min: 50000,
-    price_max: 100000,
-    rating: 4.9,
-    review_count: 12,
-    is_available: true,
-  },
-]
+type Profile = {
+  full_name: string
+  nim: string
+  prodi: string
+  fakultas: string
+  angkatan: string
+  whatsapp: string
+  avatar_url: string
+  bio: string
+}
 
-const DUMMY_REVIEWS_RECEIVED = [
-  {
-    id: 'r1',
-    service_title: 'Jasa Install Ulang OS & Setup Software',
-    client_name: 'Budi S.',
-    rating: 5,
-    comment: 'Cepat dan beres semua, recommended!',
-    created_at: '2024-03-10',
-  },
-  {
-    id: 'r2',
-    service_title: 'Jasa Install Ulang OS & Setup Software',
-    client_name: 'Maya P.',
-    rating: 5,
-    comment: 'Sabar banget ngejelasinnya, laptop langsung lancar.',
-    created_at: '2024-03-05',
-  },
-]
+type Service = {
+  id: string
+  title: string
+  price_min: number
+  price_max: number | null
+  is_available: boolean
+  categories: { name: string } | null
+  reviews: { rating: number }[]
+}
+
+type Review = {
+  id: string
+  rating: number
+  comment: string
+  created_at: string
+  services: { title: string } | null
+  profiles: { full_name: string } | null
+}
 
 export default function ProfilePage() {
   const supabase = createClient()
   const router = useRouter()
-  const [profile, setProfile] = useState<{
-    full_name: string
-    nim: string
-    prodi: string
-    fakultas: string
-    angkatan: string
-    whatsapp: string
-    avatar_url: string
-    bio: string
-  } | null>(null)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [services, setServices] = useState<Service[]>([])
+  const [reviews, setReviews] = useState<Review[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const getProfile = async () => {
+    const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const { data } = await supabase
+      // Get profile
+      const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single()
+      if (profileData) setProfile(profileData)
 
-      if (data) setProfile(data)
+      // Get my services
+      const { data: servicesData } = await supabase
+        .from('services')
+        .select(`
+          id, title, price_min, price_max, is_available,
+          categories ( name ),
+          reviews ( rating )
+        `)
+        .eq('provider_id', user.id)
+        .order('created_at', { ascending: false })
+      if (servicesData) setServices(servicesData as Service[])
+
+      // Get reviews received
+      const { data: reviewsData } = await supabase
+        .from('reviews')
+        .select(`
+          id, rating, comment, created_at,
+          services ( title ),
+          profiles!reviews_client_id_fkey ( full_name )
+        `)
+        .eq('provider_id', user.id)
+        .order('created_at', { ascending: false })
+      if (reviewsData) setReviews(reviewsData as Review[])
+
       setLoading(false)
     }
-    getProfile()
+    init()
   }, [])
+
+  const getAvgRating = (reviewList: { rating: number }[]) => {
+    if (!reviewList?.length) return null
+    const avg = reviewList.reduce((sum, r) => sum + r.rating, 0) / reviewList.length
+    return avg.toFixed(1)
+  }
+
+  const overallRating = getAvgRating(reviews.map(r => ({ rating: r.rating })))
+
+  const formatPrice = (min: number, max?: number | null) => {
+    const fmt = (n: number) => `Rp${(n / 1000).toFixed(0)}rb`
+    return max ? `${fmt(min)} – ${fmt(max)}` : fmt(min)
+  }
 
   if (loading) {
     return (
@@ -81,11 +110,6 @@ export default function ProfilePage() {
         <p className="text-muted-foreground">Memuat profil...</p>
       </div>
     )
-  }
-
-  const formatPrice = (min: number, max?: number) => {
-    const fmt = (n: number) => `Rp${(n / 1000).toFixed(0)}rb`
-    return max ? `${fmt(min)} – ${fmt(max)}` : fmt(min)
   }
 
   return (
@@ -142,20 +166,22 @@ export default function ProfilePage() {
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">
-                {DUMMY_MY_SERVICES.length}
-              </p>
+              <p className="text-2xl font-bold text-blue-600">{services.length}</p>
               <p className="text-xs text-muted-foreground mt-1">Jasa Aktif</p>
             </div>
             <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">15</p>
-              <p className="text-xs text-muted-foreground mt-1">Total Order</p>
+              <p className="text-2xl font-bold text-blue-600">{reviews.length}</p>
+              <p className="text-xs text-muted-foreground mt-1">Total Ulasan</p>
             </div>
             <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <div className="flex items-center justify-center gap-1">
-                <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                <p className="text-2xl font-bold">4.9</p>
-              </div>
+              {overallRating ? (
+                <div className="flex items-center justify-center gap-1">
+                  <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                  <p className="text-2xl font-bold">{overallRating}</p>
+                </div>
+              ) : (
+                <p className="text-2xl font-bold text-muted-foreground">-</p>
+              )}
               <p className="text-xs text-muted-foreground mt-1">Rating</p>
             </div>
           </div>
@@ -180,57 +206,66 @@ export default function ProfilePage() {
           <Tabs defaultValue="services">
             <TabsList className="w-full mb-6">
               <TabsTrigger value="services" className="flex-1">
-                Jasa Ditawarkan
+                Jasa Ditawarkan ({services.length})
               </TabsTrigger>
               <TabsTrigger value="reviews" className="flex-1">
-                Ulasan Diterima
+                Ulasan Diterima ({reviews.length})
               </TabsTrigger>
             </TabsList>
 
             {/* Services Tab */}
             <TabsContent value="services">
-              {DUMMY_MY_SERVICES.length > 0 ? (
+              {services.length > 0 ? (
                 <div className="space-y-4">
-                  {DUMMY_MY_SERVICES.map((service, i) => (
-                    <motion.div
-                      key={service.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className="p-4 border border-border rounded-xl hover:border-blue-200 hover:shadow-sm transition-all cursor-pointer"
-                      onClick={() => router.push(`/services/${service.id}`)}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant="secondary" className="text-xs">
-                              {service.category}
-                            </Badge>
-                            {service.is_available ? (
-                              <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs">
-                                Tersedia
+                  {services.map((service, i) => {
+                    const avg = getAvgRating(service.reviews)
+                    return (
+                      <motion.div
+                        key={service.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.1 }}
+                        className="p-4 border border-border rounded-xl hover:border-blue-200 hover:shadow-sm transition-all cursor-pointer"
+                        onClick={() => router.push(`/services/${service.id}`)}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge variant="secondary" className="text-xs">
+                                {service.categories?.name ?? 'Lainnya'}
                               </Badge>
-                            ) : (
-                              <Badge variant="destructive" className="text-xs">
-                                Tidak Tersedia
-                              </Badge>
-                            )}
+                              {service.is_available ? (
+                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs">
+                                  Tersedia
+                                </Badge>
+                              ) : (
+                                <Badge variant="destructive" className="text-xs">
+                                  Tidak Tersedia
+                                </Badge>
+                              )}
+                            </div>
+                            <h3 className="font-semibold text-sm">{service.title}</h3>
                           </div>
-                          <h3 className="font-semibold text-sm">{service.title}</h3>
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-bold text-blue-600">
-                          {formatPrice(service.price_min, service.price_max)}
-                        </p>
-                        <div className="flex items-center gap-1">
-                          <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                          <span className="text-xs font-medium">{service.rating}</span>
-                          <span className="text-xs text-muted-foreground">({service.review_count})</span>
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-bold text-blue-600">
+                            {formatPrice(service.price_min, service.price_max)}
+                          </p>
+                          {avg ? (
+                            <div className="flex items-center gap-1">
+                              <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                              <span className="text-xs font-medium">{avg}</span>
+                              <span className="text-xs text-muted-foreground">
+                                ({service.reviews.length})
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Belum ada ulasan</span>
+                          )}
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-12 text-muted-foreground">
@@ -248,9 +283,9 @@ export default function ProfilePage() {
 
             {/* Reviews Tab */}
             <TabsContent value="reviews">
-              {DUMMY_REVIEWS_RECEIVED.length > 0 ? (
+              {reviews.length > 0 ? (
                 <div className="space-y-4">
-                  {DUMMY_REVIEWS_RECEIVED.map((review, i) => (
+                  {reviews.map((review, i) => (
                     <motion.div
                       key={review.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -259,10 +294,12 @@ export default function ProfilePage() {
                       className="p-4 bg-muted/50 rounded-xl"
                     >
                       <p className="text-xs text-muted-foreground mb-2">
-                        Untuk: {review.service_title}
+                        Untuk: {review.services?.title}
                       </p>
                       <div className="flex items-center justify-between mb-2">
-                        <p className="font-medium text-sm">{review.client_name}</p>
+                        <p className="font-medium text-sm">
+                          {review.profiles?.full_name ?? 'Anonymous'}
+                        </p>
                         <div className="flex items-center gap-1">
                           {Array.from({ length: review.rating }).map((_, i) => (
                             <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
@@ -270,7 +307,9 @@ export default function ProfilePage() {
                         </div>
                       </div>
                       <p className="text-sm text-muted-foreground">{review.comment}</p>
-                      <p className="text-xs text-muted-foreground mt-2">{review.created_at}</p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {new Date(review.created_at).toLocaleDateString('id-ID')}
+                      </p>
                     </motion.div>
                   ))}
                 </div>

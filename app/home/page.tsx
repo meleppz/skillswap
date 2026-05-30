@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { Search, Briefcase, Bell, User, Plus, Bookmark, Star, LogOut } from 'lucide-react'
+import { Search, Briefcase, Bell, Plus, Bookmark, Star, LogOut, Package } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -12,117 +12,88 @@ import { Button } from '@/components/ui/button'
 
 const CATEGORIES = ['Semua', 'Teknologi', 'Akademik', 'Desain & Kreatif', 'Foto & Video', 'Bahasa', 'Lainnya']
 
-// Dummy data for now
-const DUMMY_SERVICES = [
-  {
-    id: '1',
-    title: 'Jasa Install Ulang OS & Setup Software',
-    description: 'Install Windows/Linux + software riset, coding, atau desain sesuai kebutuhan kamu.',
-    price_min: 50000,
-    price_max: 100000,
-    estimated_days: 1,
-    category: 'Teknologi',
-    provider: { full_name: 'Andi Pratama', prodi: 'Teknik Informatika', avatar_url: '' },
-    rating: 4.9,
-    review_count: 12,
-  },
-  {
-    id: '2',
-    title: 'Jasa Translate Abstrak Jurnal Inggris-Indonesia',
-    description: 'Translate abstrak jurnal ilmiah dengan bahasa akademik yang tepat dan natural.',
-    price_min: 30000,
-    price_max: 50000,
-    estimated_days: 1,
-    category: 'Akademik',
-    provider: { full_name: 'Sari Dewi', prodi: 'Sastra Inggris', avatar_url: '' },
-    rating: 5.0,
-    review_count: 8,
-  },
-  {
-    id: '3',
-    title: 'Jasa Foto Dokumentasi Wisuda & Sidang',
-    description: 'Foto dokumentasi momen wisuda atau sidang skripsi dengan kamera mirrorless.',
-    price_min: 150000,
-    price_max: 300000,
-    estimated_days: 1,
-    category: 'Foto & Video',
-    provider: { full_name: 'Rizky Fajar', prodi: 'Ilmu Komunikasi', avatar_url: '' },
-    rating: 4.8,
-    review_count: 23,
-  },
-  {
-    id: '4',
-    title: 'Jasa Desain Poster & Infografis',
-    description: 'Desain poster acara, infografis tugas, atau konten sosmed dengan Figma/Canva Pro.',
-    price_min: 40000,
-    price_max: 80000,
-    estimated_days: 2,
-    category: 'Desain & Kreatif',
-    provider: { full_name: 'Maya Putri', prodi: 'Desain Komunikasi Visual', avatar_url: '' },
-    rating: 4.7,
-    review_count: 31,
-  },
-  {
-    id: '5',
-    title: 'Jasa Olah Data SPSS & Interpretasi',
-    description: 'Bantu olah data skripsi/penelitian pakai SPSS lengkap dengan interpretasi hasil.',
-    price_min: 75000,
-    price_max: 150000,
-    estimated_days: 2,
-    category: 'Akademik',
-    provider: { full_name: 'Budi Santoso', prodi: 'Statistika', avatar_url: '' },
-    rating: 4.9,
-    review_count: 17,
-  },
-  {
-    id: '6',
-    title: 'Jasa Pembuatan Website Portfolio',
-    description: 'Buatkan website portfolio personal pakai React/Next.js yang modern dan responsive.',
-    price_min: 200000,
-    price_max: 500000,
-    estimated_days: 7,
-    category: 'Teknologi',
-    provider: { full_name: 'Kevin Lie', prodi: 'Sistem Informasi', avatar_url: '' },
-    rating: 4.8,
-    review_count: 9,
-  },
-]
+type Service = {
+  id: string
+  title: string
+  description: string
+  price_min: number
+  price_max: number | null
+  estimated_days: number
+  is_available: boolean
+  categories: { name: string } | null
+  profiles: {
+    full_name: string
+    prodi: string
+    avatar_url: string
+  } | null
+  reviews: { rating: number }[]
+}
 
 export default function HomePage() {
   const supabase = createClient()
   const router = useRouter()
   const [profile, setProfile] = useState<{ full_name: string; avatar_url: string } | null>(null)
+  const [services, setServices] = useState<Service[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('Semua')
 
   useEffect(() => {
-    const getProfile = async () => {
+    const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      const { data } = await supabase
+      // Get profile
+      const { data: profileData } = await supabase
         .from('profiles')
         .select('full_name, avatar_url')
         .eq('id', user.id)
         .single()
+      if (profileData) setProfile(profileData)
 
-      if (data) setProfile(data)
+      // Get services
+      await fetchServices()
     }
-    getProfile()
+    init()
   }, [])
+
+  const fetchServices = async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('services')
+      .select(`
+        id, title, description, price_min, price_max,
+        estimated_days, is_available,
+        categories ( name ),
+        profiles ( full_name, prodi, avatar_url ),
+        reviews ( rating )
+      `)
+      .eq('is_available', true)
+      .order('created_at', { ascending: false })
+
+    if (!error && data) setServices(data as Service[])
+    setLoading(false)
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
   }
 
-  const filtered = DUMMY_SERVICES.filter(s => {
-    const matchCategory = activeCategory === 'Semua' || s.category === activeCategory
+  const getAvgRating = (reviews: { rating: number }[]) => {
+    if (!reviews?.length) return null
+    const avg = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
+    return avg.toFixed(1)
+  }
+
+  const filtered = services.filter(s => {
+    const categoryName = s.categories?.name ?? 'Lainnya'
+    const matchCategory = activeCategory === 'Semua' || categoryName === activeCategory
     const matchSearch = s.title.toLowerCase().includes(search.toLowerCase())
     return matchCategory && matchSearch
   })
 
-  const formatPrice = (min: number, max?: number) => {
+  const formatPrice = (min: number, max?: number | null) => {
     const fmt = (n: number) => `Rp${(n / 1000).toFixed(0)}rb`
     return max ? `${fmt(min)} – ${fmt(max)}` : fmt(min)
   }
@@ -136,8 +107,16 @@ export default function HomePage() {
             <Briefcase className="text-blue-600 w-6 h-6" />
             <span className="text-xl font-bold text-blue-600">SkillSwap</span>
           </div>
-
           <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => router.push('/orders')}
+            >
+              <Package className="w-4 h-4" />
+              <span className="hidden md:inline">Orders</span>
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -145,7 +124,7 @@ export default function HomePage() {
               onClick={() => router.push('/provider')}
             >
               <Plus className="w-4 h-4" />
-              Provider Mode
+              <span className="hidden md:inline">Provider Mode</span>
             </Button>
             <Button variant="ghost" size="icon">
               <Bell className="w-5 h-5" />
@@ -180,7 +159,6 @@ export default function HomePage() {
           <p className="text-muted-foreground mb-6">
             Temukan jasa yang kamu butuhkan dari sesama mahasiswa.
           </p>
-
           <div className="relative max-w-xl">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
             <Input
@@ -210,70 +188,87 @@ export default function HomePage() {
         </div>
 
         {/* Services Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filtered.map((service, i) => (
-            <motion.div
-              key={service.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.4, delay: i * 0.08 }}
-              className="bg-card border border-border rounded-2xl p-5 hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group"
-              onClick={() => router.push(`/services/${service.id}`)}
-            >
-              {/* Provider Info */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <Avatar className="w-9 h-9">
-                    <AvatarImage src={service.provider.avatar_url} />
-                    <AvatarFallback className="bg-blue-100 text-blue-600 text-sm font-semibold">
-                      {service.provider.full_name.charAt(0)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium">{service.provider.full_name}</p>
-                    <p className="text-xs text-muted-foreground">{service.provider.prodi}</p>
-                  </div>
-                </div>
-                <button
-                  className="text-muted-foreground hover:text-blue-600 transition-colors"
-                  onClick={e => e.stopPropagation()}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-muted/50 rounded-2xl h-48 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filtered.map((service, i) => {
+              const avgRating = getAvgRating(service.reviews)
+              return (
+                <motion.div
+                  key={service.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4, delay: i * 0.08 }}
+                  className="bg-card border border-border rounded-2xl p-5 hover:shadow-lg hover:border-blue-200 transition-all cursor-pointer group"
+                  onClick={() => router.push(`/services/${service.id}`)}
                 >
-                  <Bookmark className="w-4 h-4" />
-                </button>
-              </div>
+                  {/* Provider Info */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <Avatar className="w-9 h-9">
+                        <AvatarImage src={service.profiles?.avatar_url} />
+                        <AvatarFallback className="bg-blue-100 text-blue-600 text-sm font-semibold">
+                          {service.profiles?.full_name?.charAt(0) ?? 'U'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="text-sm font-medium">{service.profiles?.full_name}</p>
+                        <p className="text-xs text-muted-foreground">{service.profiles?.prodi}</p>
+                      </div>
+                    </div>
+                    <button
+                      className="text-muted-foreground hover:text-blue-600 transition-colors"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Bookmark className="w-4 h-4" />
+                    </button>
+                  </div>
 
-              {/* Service Info */}
-              <Badge variant="secondary" className="mb-3 text-xs">
-                {service.category}
-              </Badge>
-              <h3 className="font-semibold text-base mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
-                {service.title}
-              </h3>
-              <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
-                {service.description}
-              </p>
-
-              {/* Footer */}
-              <div className="flex items-center justify-between pt-3 border-t border-border">
-                <div>
-                  <p className="text-sm font-bold text-blue-600">
-                    {formatPrice(service.price_min, service.price_max)}
+                  {/* Service Info */}
+                  <Badge variant="secondary" className="mb-3 text-xs">
+                    {service.categories?.name ?? 'Lainnya'}
+                  </Badge>
+                  <h3 className="font-semibold text-base mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
+                    {service.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+                    {service.description}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    ~{service.estimated_days} hari
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  <span className="text-sm font-medium">{service.rating}</span>
-                  <span className="text-xs text-muted-foreground">({service.review_count})</span>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
 
-        {filtered.length === 0 && (
+                  {/* Footer */}
+                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                    <div>
+                      <p className="text-sm font-bold text-blue-600">
+                        {formatPrice(service.price_min, service.price_max)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ~{service.estimated_days} hari
+                      </p>
+                    </div>
+                    {avgRating ? (
+                      <div className="flex items-center gap-1">
+                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                        <span className="text-sm font-medium">{avgRating}</span>
+                        <span className="text-xs text-muted-foreground">
+                          ({service.reviews.length})
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Belum ada ulasan</span>
+                    )}
+                  </div>
+                </motion.div>
+              )
+            })}
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <p className="text-lg">Tidak ada jasa yang ditemukan 😕</p>
             <p className="text-sm mt-1">Coba kata kunci atau kategori lain</p>

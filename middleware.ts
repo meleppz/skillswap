@@ -33,16 +33,35 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // If user is not logged in and trying to access protected routes, redirect to login
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/onboarding')
-  ) {
+  const publicRoutes = ['/login', '/auth']
+  const isPublicRoute = publicRoutes.some(route =>
+    request.nextUrl.pathname.startsWith(route)
+  )
+
+  // Redirect to login if not authenticated
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
+  }
+
+  // Redirect to onboarding if profile incomplete
+  if (user) {
+    const isOnboarding = request.nextUrl.pathname.startsWith('/onboarding')
+
+    if (!isOnboarding && !isPublicRoute) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('nim')
+        .eq('id', user.id)
+        .single()
+
+      if (!profile?.nim) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/onboarding'
+        return NextResponse.redirect(url)
+      }
+    }
   }
 
   return supabaseResponse
