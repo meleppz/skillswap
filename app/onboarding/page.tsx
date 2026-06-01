@@ -4,10 +4,7 @@ import { createClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Briefcase } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import Image from 'next/image'
 
 export default function OnboardingPage() {
   const supabase = createClient()
@@ -15,7 +12,6 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
-    full_name: '',
     nim: '',
     prodi: '',
     fakultas: '',
@@ -30,7 +26,7 @@ export default function OnboardingPage() {
   const handleSubmit = async () => {
     setError('')
 
-    if (!form.full_name || !form.nim || !form.prodi || !form.fakultas || !form.angkatan || !form.whatsapp) {
+    if (!form.nim || !form.prodi || !form.fakultas || !form.angkatan || !form.whatsapp) {
       setError('Semua field wajib diisi!')
       return
     }
@@ -38,16 +34,11 @@ export default function OnboardingPage() {
     setLoading(true)
 
     const { data: { user } } = await supabase.auth.getUser()
-
-    if (!user) {
-      router.push('/login')
-      return
-    }
+    if (!user) { router.push('/login'); return }
 
     const { error } = await supabase
       .from('profiles')
       .update({
-        full_name: form.full_name,
         nim: form.nim,
         prodi: form.prodi,
         fakultas: form.fakultas,
@@ -62,109 +53,113 @@ export default function OnboardingPage() {
       return
     }
 
-    router.push('/home')
+    router.push('/services')
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="w-full max-w-lg"
-      >
-        <div className="flex items-center gap-2 mb-8">
-          <Briefcase className="text-blue-600 w-6 h-6" />
-          <span className="text-xl font-bold text-blue-600">SkillSwap</span>
-        </div>
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Left */}
+      <div className="w-1/2 flex items-center justify-center p-16">
+        <motion.h1
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6 }}
+          className="text-8xl leading-tight"
+          style={{ fontFamily: 'HelveticaCompressed, Arial Narrow, sans-serif' }}
+        >
+          Lengkapi{'\n'}Profil{'\n'}Dulu, Yuk!
+        </motion.h1>
+      </div>
 
-        <h1 className="text-3xl font-bold mb-2">Lengkapi Profilmu 👤</h1>
-        <p className="text-muted-foreground mb-8">
-          Isi data diri kamu sekali aja — ini yang bakal ditampilkan ke pengguna lain.
-        </p>
+      {/* Right */}
+      <div className="w-1/2 flex items-center justify-center p-16">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-md"
+        >
+          <Image
+            src="/logo.png"
+            alt="SkillSwap"
+            width={120}
+            height={32}
+            className="object-contain mb-8"
+          />
 
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="full_name">Nama Lengkap</Label>
-            <Input
-              id="full_name"
-              name="full_name"
-              placeholder="Budi Santoso"
-              value={form.full_name}
-              onChange={handleChange}
-            />
-          </div>
+          <div className="space-y-4">
+            {/* NIM */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">NIM</label>
+              <input
+                name="nim"
+                placeholder="13522XXX"
+                value={form.nim}
+                onChange={handleChange}
+                className="w-full px-4 py-3 text-sm rounded-2xl border border-gray-200 bg-white shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="nim">NIM</Label>
-            <Input
-              id="nim"
-              name="nim"
-              placeholder="2021001234"
-              value={form.nim}
-              onChange={handleChange}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="prodi">Program Studi</Label>
-              <Input
-                id="prodi"
+            {/* Jurusan */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Jurusan</label>
+              <input
                 name="prodi"
-                placeholder="Teknik Informatika"
+                placeholder="Sistem dan Teknologi Informasi"
                 value={form.prodi}
                 onChange={handleChange}
+                className="w-full px-4 py-3 text-sm rounded-2xl border border-gray-200 bg-white shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="fakultas">Fakultas</Label>
-              <Input
-                id="fakultas"
+
+            {/* Fakultas */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Fakultas</label>
+              <input
                 name="fakultas"
-                placeholder="Fakultas Teknik"
+                placeholder="Sekolah Teknik Elektro dan Informatika"
                 value={form.fakultas}
                 onChange={handleChange}
+                className="w-full px-4 py-3 text-sm rounded-2xl border border-gray-200 bg-white shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
+
+            {/* Angkatan + WhatsApp */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Angkatan</label>
+                <input
+                  name="angkatan"
+                  placeholder="2024"
+                  value={form.angkatan}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 text-sm rounded-2xl border border-gray-200 bg-white shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">No. Whatsapp</label>
+                <input
+                  name="whatsapp"
+                  placeholder="08123456789"
+                  value={form.whatsapp}
+                  onChange={handleChange}
+                  className="w-full px-4 py-3 text-sm rounded-2xl border border-gray-200 bg-white shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                />
+              </div>
+            </div>
+
+            {error && <p className="text-red-500 text-sm">{error}</p>}
+
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="w-full py-3.5 bg-gray-700 text-white rounded-2xl font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Menyimpan...' : 'Simpan'}
+            </button>
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="angkatan">Angkatan</Label>
-              <Input
-                id="angkatan"
-                name="angkatan"
-                placeholder="2021"
-                value={form.angkatan}
-                onChange={handleChange}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="whatsapp">No. WhatsApp</Label>
-              <Input
-                id="whatsapp"
-                name="whatsapp"
-                placeholder="08123456789"
-                value={form.whatsapp}
-                onChange={handleChange}
-              />
-            </div>
-          </div>
-
-          {error && (
-            <p className="text-red-500 text-sm">{error}</p>
-          )}
-
-          <Button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full h-12 text-base bg-blue-600 hover:bg-blue-700"
-          >
-            {loading ? 'Menyimpan...' : 'Simpan & Mulai →'}
-          </Button>
-        </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </div>
   )
 }
