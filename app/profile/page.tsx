@@ -4,12 +4,10 @@ import { createClient } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Star, Briefcase, Edit, MapPin, Phone } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Star, Bookmark } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Separator } from '@/components/ui/separator'
+import Navbar from '@/components/navbar'
 
 type Profile = {
   full_name: string
@@ -25,20 +23,17 @@ type Profile = {
 type Service = {
   id: string
   title: string
+  description: string
   price_min: number
   price_max: number | null
+  estimated_days: number
   is_available: boolean
   categories: { name: string } | null
   reviews: { rating: number }[]
 }
 
-type Review = {
-  id: string
-  rating: number
-  comment: string
-  created_at: string
-  services: { title: string } | null
-  profiles: { full_name: string } | null
+type RatingDistribution = {
+  [key: number]: number
 }
 
 export default function ProfilePage() {
@@ -46,15 +41,17 @@ export default function ProfilePage() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [services, setServices] = useState<Service[]>([])
-  const [reviews, setReviews] = useState<Review[]>([])
+  const [bookmarks, setBookmarks] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
+  const [email, setEmail] = useState('')
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
 
-      // Get profile
+      setEmail(user.email ?? '')
+
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
@@ -66,7 +63,8 @@ export default function ProfilePage() {
       const { data: servicesData } = await supabase
         .from('services')
         .select(`
-          id, title, price_min, price_max, is_available,
+          id, title, description, price_min, price_max,
+          estimated_days, is_available,
           categories ( name ),
           reviews ( rating )
         `)
@@ -74,255 +72,286 @@ export default function ProfilePage() {
         .order('created_at', { ascending: false })
       if (servicesData) setServices(servicesData as Service[])
 
-      // Get reviews received
-      const { data: reviewsData } = await supabase
-        .from('reviews')
+      // Get bookmarks
+      const { data: bookmarksData } = await supabase
+        .from('bookmarks')
         .select(`
-          id, rating, comment, created_at,
-          services ( title ),
-          profiles!reviews_client_id_fkey ( full_name )
+          services (
+            id, title, description, price_min, price_max,
+            estimated_days, is_available,
+            categories ( name ),
+            reviews ( rating )
+          )
         `)
-        .eq('provider_id', user.id)
-        .order('created_at', { ascending: false })
-      if (reviewsData) setReviews(reviewsData as Review[])
+        .eq('user_id', user.id)
+      if (bookmarksData) {
+        const bookmarkedServices = bookmarksData
+          .map((b: any) => b.services)
+          .filter(Boolean)
+        setBookmarks(bookmarkedServices as Service[])
+      }
 
       setLoading(false)
     }
     init()
   }, [])
 
-  const getAvgRating = (reviewList: { rating: number }[]) => {
-    if (!reviewList?.length) return null
-    const avg = reviewList.reduce((sum, r) => sum + r.rating, 0) / reviewList.length
-    return avg.toFixed(1)
+  const getAvgRating = (reviews: { rating: number }[]) => {
+    if (!reviews?.length) return null
+    return reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
   }
 
-  const overallRating = getAvgRating(reviews.map(r => ({ rating: r.rating })))
+  const getAllReviews = () => {
+    return services.flatMap(s => s.reviews)
+  }
+
+  const getRatingDistribution = (): RatingDistribution => {
+    const reviews = getAllReviews()
+    const dist: RatingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
+    reviews.forEach(r => { dist[r.rating] = (dist[r.rating] || 0) + 1 })
+    return dist
+  }
+
+  const overallRating = getAvgRating(getAllReviews())
+  const totalReviews = getAllReviews().length
+  const ratingDist = getRatingDistribution()
 
   const formatPrice = (min: number, max?: number | null) => {
-    const fmt = (n: number) => `Rp${(n / 1000).toFixed(0)}rb`
+    const fmt = (n: number) => `Rp${n.toLocaleString('id-ID')}`
     return max ? `${fmt(min)} – ${fmt(max)}` : fmt(min)
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground">Memuat profil...</p>
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
+      <div className="flex items-center justify-center h-96">
+        <p className="text-gray-400">Memuat profil...</p>
       </div>
-    )
-  }
+    </div>
+  )
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="sticky top-0 z-50 bg-background/80 backdrop-blur border-b border-border px-6 py-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span className="text-sm">Kembali</span>
-          </button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => router.push('/profile/edit')}
-          >
-            <Edit className="w-4 h-4" />
-            Edit Profil
-          </Button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      <Navbar />
 
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <div className="max-w-5xl mx-auto px-8 py-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          {/* Profile Header */}
-          <div className="flex items-start gap-5 mb-6">
-            <Avatar className="w-20 h-20">
-              <AvatarImage src={profile?.avatar_url} />
-              <AvatarFallback className="bg-blue-100 text-blue-600 text-2xl font-bold">
-                {profile?.full_name?.charAt(0) ?? 'U'}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold mb-1">{profile?.full_name}</h1>
-              <div className="flex items-center gap-2 text-muted-foreground text-sm mb-2">
-                <MapPin className="w-4 h-4" />
-                <span>{profile?.prodi} · {profile?.fakultas}</span>
+          {/* Profile Card */}
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 mb-8">
+            <div className="flex items-start gap-6">
+              {/* Avatar */}
+              <Avatar className="w-20 h-20 shrink-0">
+                <AvatarImage src={profile?.avatar_url} />
+                <AvatarFallback className="bg-gray-100 text-gray-600 text-2xl font-bold">
+                  {profile?.full_name?.charAt(0) ?? 'U'}
+                </AvatarFallback>
+              </Avatar>
+
+              {/* Info */}
+              <div className="flex-1">
+                <h1 className="text-2xl font-bold mb-1">{profile?.full_name}</h1>
+                <p className="text-sm text-gray-500 mb-1">{email}</p>
+                <p className="text-sm text-gray-500 mb-3">
+                  {profile?.prodi} '{profile?.angkatan?.slice(-2)}
+                </p>
+                {overallRating && (
+                  <div className="flex items-center gap-1 mb-3">
+                    <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                    <span className="font-semibold text-sm">{overallRating.toFixed(1)}</span>
+                    <span className="text-xs text-gray-400">({totalReviews})</span>
+                  </div>
+                )}
+                {profile?.bio && (
+                  <Badge variant="outline" className="text-xs rounded-full">
+                    {profile.bio}
+                  </Badge>
+                )}
               </div>
-              <div className="flex items-center gap-2 text-muted-foreground text-sm">
-                <Phone className="w-4 h-4" />
-                <span>{profile?.whatsapp ?? '-'}</span>
-              </div>
-            </div>
-          </div>
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{services.length}</p>
-              <p className="text-xs text-muted-foreground mt-1">Jasa Aktif</p>
-            </div>
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600">{reviews.length}</p>
-              <p className="text-xs text-muted-foreground mt-1">Total Ulasan</p>
-            </div>
-            <div className="bg-muted/50 rounded-xl p-4 text-center">
-              {overallRating ? (
-                <div className="flex items-center justify-center gap-1">
-                  <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  <p className="text-2xl font-bold">{overallRating}</p>
-                </div>
-              ) : (
-                <p className="text-2xl font-bold text-muted-foreground">-</p>
-              )}
-              <p className="text-xs text-muted-foreground mt-1">Rating</p>
-            </div>
-          </div>
-
-          {/* Bio */}
-          {profile?.bio && (
-            <>
-              <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-                {profile.bio}
-              </p>
-              <Separator className="mb-6" />
-            </>
-          )}
-
-          {/* Info Badges */}
-          <div className="flex gap-2 flex-wrap mb-8">
-            <Badge variant="secondary">Angkatan {profile?.angkatan}</Badge>
-            <Badge variant="secondary">NIM {profile?.nim}</Badge>
-          </div>
-
-          {/* Tabs */}
-          <Tabs defaultValue="services">
-            <TabsList className="w-full mb-6">
-              <TabsTrigger value="services" className="flex-1">
-                Jasa Ditawarkan ({services.length})
-              </TabsTrigger>
-              <TabsTrigger value="reviews" className="flex-1">
-                Ulasan Diterima ({reviews.length})
-              </TabsTrigger>
-            </TabsList>
-
-            {/* Services Tab */}
-            <TabsContent value="services">
-              {services.length > 0 ? (
-                <div className="space-y-4">
-                  {services.map((service, i) => {
-                    const avg = getAvgRating(service.reviews)
+              {/* Rating Distribution */}
+              {totalReviews > 0 && (
+                <div className="shrink-0 space-y-1.5 min-w-[180px]">
+                  {[5, 4, 3, 2, 1].map(star => {
+                    const count = ratingDist[star] || 0
+                    const pct = totalReviews > 0 ? (count / totalReviews) * 100 : 0
                     return (
-                      <motion.div
-                        key={service.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.1 }}
-                        className="p-4 border border-border rounded-xl hover:border-blue-200 hover:shadow-sm transition-all cursor-pointer"
-                        onClick={() => router.push(`/services/${service.id}`)}
-                      >
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <Badge variant="secondary" className="text-xs">
-                                {service.categories?.name ?? 'Lainnya'}
-                              </Badge>
-                              {service.is_available ? (
-                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100 text-xs">
-                                  Tersedia
-                                </Badge>
-                              ) : (
-                                <Badge variant="destructive" className="text-xs">
-                                  Tidak Tersedia
-                                </Badge>
-                              )}
-                            </div>
-                            <h3 className="font-semibold text-sm">{service.title}</h3>
-                          </div>
+                      <div key={star} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400 w-3">{star}</span>
+                        <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className="bg-yellow-400 h-1.5 rounded-full transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
-                        <div className="flex items-center justify-between">
-                          <p className="text-sm font-bold text-blue-600">
-                            {formatPrice(service.price_min, service.price_max)}
-                          </p>
-                          {avg ? (
-                            <div className="flex items-center gap-1">
-                              <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                              <span className="text-xs font-medium">{avg}</span>
-                              <span className="text-xs text-muted-foreground">
-                                ({service.reviews.length})
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Belum ada ulasan</span>
-                          )}
-                        </div>
-                      </motion.div>
+                      </div>
                     )
                   })}
                 </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Briefcase className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Belum ada jasa yang ditawarkan</p>
-                  <Button
-                    className="mt-4 bg-blue-600 hover:bg-blue-700"
-                    onClick={() => router.push('/provider')}
-                  >
-                    Mulai Tawarkan Jasa
-                  </Button>
-                </div>
               )}
-            </TabsContent>
+            </div>
+          </div>
 
-            {/* Reviews Tab */}
-            <TabsContent value="reviews">
-              {reviews.length > 0 ? (
-                <div className="space-y-4">
-                  {reviews.map((review, i) => (
+          {/* About Me */}
+          {profile?.bio && (
+            <div className="mb-8">
+              <h2 className="font-bold text-lg mb-3">About Me</h2>
+              <p className="text-sm text-gray-600 leading-relaxed">{profile.bio}</p>
+            </div>
+          )}
+
+          {/* Services */}
+          <div className="mb-8">
+            <h2 className="font-bold text-lg mb-4">Service yang Ditawarkan</h2>
+            {services.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 bg-white border border-gray-200 rounded-2xl">
+                <p className="text-sm">Belum ada service yang ditawarkan</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {services.map((service, i) => {
+                  const avg = getAvgRating(service.reviews)
+                  return (
                     <motion.div
-                      key={review.id}
+                      key={service.id}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.1 }}
-                      className="p-4 bg-muted/50 rounded-xl"
+                      transition={{ delay: i * 0.05 }}
+                      className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-sm transition-all cursor-pointer"
+                      onClick={() => router.push('/services')}
                     >
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Untuk: {review.services?.title}
-                      </p>
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="font-medium text-sm">
-                          {review.profiles?.full_name ?? 'Anonymous'}
-                        </p>
-                        <div className="flex items-center gap-1">
-                          {Array.from({ length: review.rating }).map((_, i) => (
-                            <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                          ))}
+                      {/* Provider row */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <Avatar className="w-8 h-8">
+                          <AvatarImage src={profile?.avatar_url} />
+                          <AvatarFallback className="bg-gray-100 text-gray-600 text-xs">
+                            {profile?.full_name?.charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-semibold">{profile?.full_name}</p>
+                          <p className="text-xs text-gray-400">
+                            {profile?.prodi} '{profile?.angkatan?.slice(-2)}
+                          </p>
                         </div>
                       </div>
-                      <p className="text-sm text-muted-foreground">{review.comment}</p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {new Date(review.created_at).toLocaleDateString('id-ID')}
+
+                      <Badge variant="outline" className="text-xs rounded-full mb-2">
+                        {service.categories?.name ?? 'Lainnya'}
+                      </Badge>
+
+                      <h3 className="font-bold text-sm mb-1 line-clamp-2">{service.title}</h3>
+                      <p className="text-xs text-gray-400 line-clamp-1 mb-4">
+                        {service.description}
                       </p>
+
+                      <hr className="border-gray-100 mb-3" />
+
+                      <div className="flex items-end justify-between">
+                        <div>
+                          <p className="font-bold text-base">
+                            {formatPrice(service.price_min, service.price_max)}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            Pengerjaan: {service.estimated_days} Hari
+                          </p>
+                        </div>
+                        {avg && (
+                          <div className="flex items-center gap-1">
+                            <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                            <span className="text-xs font-medium">{avg.toFixed(1)}</span>
+                            <span className="text-xs text-gray-400">({service.reviews.length})</span>
+                          </div>
+                        )}
+                      </div>
                     </motion.div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Star className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">Belum ada ulasan yang diterima</p>
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Bookmarks */}
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Bookmark className="w-5 h-5" />
+              <h2 className="font-bold text-lg">Service Disimpan</h2>
+            </div>
+            {bookmarks.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 bg-white border border-gray-200 rounded-2xl">
+                <p className="text-sm">Belum ada service yang disimpan</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {bookmarks.map((service, i) => {
+                  const avg = getAvgRating(service.reviews)
+                  return (
+                    <motion.div
+                      key={service.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-sm transition-all cursor-pointer"
+                      onClick={() => router.push('/services')}
+                    >
+                      <Badge variant="outline" className="text-xs rounded-full mb-2">
+                        {service.categories?.name ?? 'Lainnya'}
+                      </Badge>
+
+                      <h3 className="font-bold text-sm mb-1 line-clamp-2">{service.title}</h3>
+                      <p className="text-xs text-gray-400 line-clamp-1 mb-4">
+                        {service.description}
+                      </p>
+
+                      <hr className="border-gray-100 mb-3" />
+
+                      <div className="flex items-end justify-between">
+                        <div>
+                          <p className="font-bold text-base">
+                            {formatPrice(service.price_min, service.price_max)}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            Pengerjaan: {service.estimated_days} Hari
+                          </p>
+                        </div>
+                        {avg && (
+                          <div className="flex items-center gap-1">
+                            <Star className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
+                            <span className="text-xs font-medium">{avg.toFixed(1)}</span>
+                            <span className="text-xs text-gray-400">({service.reviews.length})</span>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </motion.div>
       </div>
+
+      {/* Footer */}
+      <footer className="bg-gray-900 text-white py-16 px-8 mt-16">
+        <div className="max-w-5xl mx-auto text-center">
+          <p
+            className="text-5xl uppercase mb-6"
+            style={{ fontFamily: 'HelveticaCompressed, Arial Narrow, sans-serif' }}
+          >
+            SKILLSWAP!
+          </p>
+          <p className="text-xs text-gray-400 leading-relaxed max-w-lg mx-auto">
+            SkillSwap! Platform Original Konsolidasi Ekonomi Mikro Jasa Peer-to-Peer Mahasiswa.<br />
+            Dikembangkan secara khusus sebagai pemenuhan komponen teknis nilai UAS pada mata kuliah II2210 Teknologi Platform.<br />
+            Sekolah Teknik Elektro dan Informatika, Institut Teknologi Bandung. Semester II Tahun Akademik 2025/2026.<br />
+            © 2026 SkillSwap. Hak Cipta Dilindungi Undang-Undang.
+          </p>
+        </div>
+      </footer>
     </div>
   )
 }
