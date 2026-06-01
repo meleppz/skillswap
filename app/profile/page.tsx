@@ -27,9 +27,20 @@ type Service = {
   price_min: number
   price_max: number | null
   estimated_days: number
+  estimated_unit: string | null
   is_available: boolean
   categories: { name: string } | null
   reviews: { rating: number }[]
+}
+
+type Review = {
+  id: string
+  rating: number
+  comment: string
+  created_at: string
+  services: { title: string } | null
+  requests: { title: string } | null
+  profiles: { full_name: string } | null
 }
 
 type RatingDistribution = {
@@ -41,6 +52,7 @@ export default function ProfilePage() {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [services, setServices] = useState<Service[]>([])
+  const [reviews, setReviews] = useState<Review[]>([])
   const [bookmarks, setBookmarks] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
   const [email, setEmail] = useState('')
@@ -64,7 +76,7 @@ export default function ProfilePage() {
         .from('services')
         .select(`
           id, title, description, price_min, price_max,
-          estimated_days, is_available,
+          estimated_days, estimated_unit, is_available,
           categories ( name ),
           reviews ( rating )
         `)
@@ -72,13 +84,26 @@ export default function ProfilePage() {
         .order('created_at', { ascending: false })
       if (servicesData) setServices(servicesData as Service[])
 
+      // Get ALL reviews (from both service orders and requests)
+      const { data: reviewsData } = await supabase
+        .from('reviews')
+        .select(`
+          id, rating, comment, created_at,
+          services ( title ),
+          requests ( title ),
+          profiles!reviews_client_id_fkey ( full_name )
+        `)
+        .eq('provider_id', user.id)
+        .order('created_at', { ascending: false })
+      if (reviewsData) setReviews(reviewsData as Review[])
+
       // Get bookmarks
       const { data: bookmarksData } = await supabase
         .from('bookmarks')
         .select(`
           services (
             id, title, description, price_min, price_max,
-            estimated_days, is_available,
+            estimated_days, estimated_unit, is_available,
             categories ( name ),
             reviews ( rating )
           )
@@ -96,24 +121,19 @@ export default function ProfilePage() {
     init()
   }, [])
 
-  const getAvgRating = (reviews: { rating: number }[]) => {
-    if (!reviews?.length) return null
-    return reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length
-  }
-
-  const getAllReviews = () => {
-    return services.flatMap(s => s.reviews)
+  const getAvgRating = (reviewList: { rating: number }[]) => {
+    if (!reviewList?.length) return null
+    return reviewList.reduce((sum, r) => sum + r.rating, 0) / reviewList.length
   }
 
   const getRatingDistribution = (): RatingDistribution => {
-    const reviews = getAllReviews()
     const dist: RatingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 }
     reviews.forEach(r => { dist[r.rating] = (dist[r.rating] || 0) + 1 })
     return dist
   }
 
-  const overallRating = getAvgRating(getAllReviews())
-  const totalReviews = getAllReviews().length
+  const overallRating = getAvgRating(reviews)
+  const totalReviews = reviews.length
   const ratingDist = getRatingDistribution()
 
   const formatPrice = (min: number, max?: number | null) => {
@@ -165,11 +185,12 @@ export default function ProfilePage() {
                     <span className="text-xs text-gray-400">({totalReviews})</span>
                   </div>
                 )}
-                {profile?.bio && (
-                  <Badge variant="outline" className="text-xs rounded-full">
-                    {profile.bio}
-                  </Badge>
-                )}
+                <button
+                  onClick={() => router.push('/settings')}
+                  className="text-xs px-3 py-1 border border-gray-200 rounded-full hover:bg-gray-50 transition-colors"
+                >
+                  Edit Profil
+                </button>
               </div>
 
               {/* Rating Distribution */}
@@ -224,7 +245,6 @@ export default function ProfilePage() {
                       className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-sm transition-all cursor-pointer"
                       onClick={() => router.push('/services')}
                     >
-                      {/* Provider row */}
                       <div className="flex items-center gap-3 mb-3">
                         <Avatar className="w-8 h-8">
                           <AvatarImage src={profile?.avatar_url} />
@@ -257,7 +277,7 @@ export default function ProfilePage() {
                             {formatPrice(service.price_min, service.price_max)}
                           </p>
                           <p className="text-xs text-gray-400">
-                            Pengerjaan: {service.estimated_days} Hari
+                            Pengerjaan: {service.estimated_days} {service.estimated_unit ?? 'hari'}
                           </p>
                         </div>
                         {avg && (
@@ -274,6 +294,44 @@ export default function ProfilePage() {
               </div>
             )}
           </div>
+
+          {/* Reviews */}
+          {reviews.length > 0 && (
+            <div className="mb-8">
+              <h2 className="font-bold text-lg mb-4">Ulasan Diterima</h2>
+              <div className="space-y-3">
+                {reviews.map((review, i) => (
+                  <motion.div
+                    key={review.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    className="bg-white border border-gray-200 rounded-2xl p-5"
+                  >
+                    <p className="text-xs text-gray-400 mb-2">
+                      Untuk: {review.services?.title ?? review.requests?.title ?? '-'}
+                    </p>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-semibold text-sm">
+                        {review.profiles?.full_name ?? 'Anonymous'}
+                      </p>
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: review.rating }).map((_, i) => (
+                          <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600">{review.comment}</p>
+                    <p className="text-xs text-gray-400 mt-2">
+                      {new Date(review.created_at).toLocaleDateString('id-ID', {
+                        day: 'numeric', month: 'long', year: 'numeric'
+                      })}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Bookmarks */}
           <div className="mb-8">
@@ -315,7 +373,7 @@ export default function ProfilePage() {
                             {formatPrice(service.price_min, service.price_max)}
                           </p>
                           <p className="text-xs text-gray-400">
-                            Pengerjaan: {service.estimated_days} Hari
+                            Pengerjaan: {service.estimated_days} {service.estimated_unit ?? 'hari'}
                           </p>
                         </div>
                         {avg && (
