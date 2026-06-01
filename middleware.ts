@@ -33,10 +33,13 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const publicRoutes = ['/login', '/auth']
-  const isPublicRoute = publicRoutes.some(route =>
-    request.nextUrl.pathname.startsWith(route)
-  )
+const publicRoutes = ['/login', '/register', '/forgot-password', '/auth', '/']
+const isPublicRoute =
+  request.nextUrl.pathname === '/' ||
+  request.nextUrl.pathname.startsWith('/login') ||
+  request.nextUrl.pathname.startsWith('/register') ||
+  request.nextUrl.pathname.startsWith('/forgot-password') ||
+  request.nextUrl.pathname.startsWith('/auth')
 
   // Redirect to login if not authenticated
   if (!user && !isPublicRoute) {
@@ -69,6 +72,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|fonts/.*|.*\\.(?:svg|png|jpg|jpeg|gif|webp|otf|ttf|woff|woff2)$).*)',
   ],
 }

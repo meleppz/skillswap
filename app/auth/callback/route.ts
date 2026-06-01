@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
           return NextResponse.redirect(`${origin}/onboarding`)
         }
 
-        return NextResponse.redirect(`${origin}/home`)
+        return NextResponse.redirect(`${origin}/services`)
       }
     }
   }
