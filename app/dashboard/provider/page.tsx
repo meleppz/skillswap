@@ -15,6 +15,7 @@ import {
   notifyRequestCancelledByProvider,
   notifyRequestDoneByProvider,
 } from '@/lib/notifications'
+import CancelModal from '@/components/modals/cancel-modal'
 
 type Service = {
   id: string
@@ -161,8 +162,8 @@ export default function ProviderDashboardPage() {
     }
   }
 
-  const handleCancel = async () => {
-    if (!cancelDialog || !cancelReason.trim()) return
+  const handleCancel = async (reason: string) => {
+    if (!cancelDialog || !reason.trim()) return
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: providerProfile } = await supabase
@@ -421,7 +422,12 @@ export default function ProviderDashboardPage() {
                   {order.status === 'ongoing' && (
                     <div className="grid grid-cols-2 gap-2">
                       <Button variant="outline" size="sm" className="text-xs rounded-xl text-red-500 hover:border-red-200"
-                        onClick={() => setCancelDialog({ id: order.id, type: 'order' })}>Batalkan</Button>
+                        onClick={() => setCancelDialog({
+                          id: order.id,
+                          type: 'order',
+                          title: order.services?.title ?? '',
+                          role: 'provider'
+                        })}>Batalkan</Button>
                       <Button size="sm" className="text-xs rounded-xl bg-gray-900 hover:bg-gray-700"
                         onClick={() => updateOrderStatus(order.id, 'need_review')}>Tandai Selesai</Button>
                     </div>
@@ -487,7 +493,12 @@ export default function ProviderDashboardPage() {
                   {order.status === 'ongoing' && (
                     <div className="grid grid-cols-2 gap-2">
                       <Button variant="outline" size="sm" className="text-xs rounded-xl text-red-500 hover:border-red-200"
-                        onClick={() => setCancelDialog({ id: order.id, type: 'request' })}>Batalkan</Button>
+                        onClick={() => setCancelDialog({
+                          id: order.id,
+                          type: 'request',
+                          title: order.title,
+                          role: 'provider'
+                        })}>Batalkan</Button>
                       <Button size="sm" className="text-xs rounded-xl bg-gray-900 hover:bg-gray-700"
                         onClick={() => updateRequestStatus(order.id, 'need_review')}>Tandai Selesai</Button>
                     </div>
@@ -502,28 +513,18 @@ export default function ProviderDashboardPage() {
         )}
       </div>
 
-      {/* Cancel Dialog */}
-      <AnimatePresence>
-        {cancelDialog && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-sm">
-              <h3 className="font-bold text-lg mb-2">Batalkan?</h3>
-              <p className="text-sm text-gray-500 mb-4">Berikan alasan pembatalan.</p>
-              <textarea placeholder="Alasan pembatalan..." value={cancelReason}
-                onChange={e => setCancelReason(e.target.value)} rows={3}
-                className="w-full px-3 py-2 text-sm rounded-xl border border-input bg-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none mb-4" />
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 rounded-xl"
-                  onClick={() => { setCancelDialog(null); setCancelReason('') }}>Kembali</Button>
-                <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl"
-                  disabled={!cancelReason.trim()} onClick={handleCancel}>Batalkan</Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Cancel Modal */}
+      <CancelModal
+        open={!!cancelDialog}
+        title={cancelDialog?.title ?? ''}
+        type={cancelDialog?.type ?? 'order'}
+        role={cancelDialog?.role ?? 'client'}
+        onClose={() => setCancelDialog(null)}
+        onConfirm={(reason) => {
+          handleCancel(reason)
+          setCancelDialog(null)
+        }}
+      />
     </div>
   )
 }

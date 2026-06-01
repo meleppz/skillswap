@@ -17,6 +17,7 @@ import {
   notifyRequestConfirmedByRequester,
 } from '@/lib/notifications'
 import ReviewModal from '@/components/modals/review-modal'
+import CancelModal from '@/components/modals/cancel-modal'
 
 type Request = {
   id: string
@@ -26,6 +27,7 @@ type Request = {
   deadline: string
   status: string
   cancel_reason: string | null
+  reviewed?: boolean
   categories: { name: string } | null
   profiles: { full_name: string; prodi: string; avatar_url: string } | null
 }
@@ -67,6 +69,14 @@ export default function RequesterDashboardPage() {
     providerAngkatan: string
     providerAvatar: string
   } | null>(null)
+const [requestReviewTarget, setRequestReviewTarget] = useState<{
+  requestId: string
+  requestTitle: string
+  providerName: string
+  providerProdi: string
+  providerAngkatan: string
+  providerAvatar: string
+} | null>(null)
 
   useEffect(() => {
     const init = async () => {
@@ -102,6 +112,19 @@ export default function RequesterDashboardPage() {
         setOrders(ordersData.map(o => ({ ...o, reviewed: reviewedIds.has(o.id) })) as Order[])
       }
 
+      if (requestsData) {
+        const requestIds = requestsData.map(r => r.id)
+        const { data: reviewsData } = await supabase
+          .from('reviews')
+          .select('request_id')
+          .in('request_id', requestIds)
+        const reviewedRequestIds = new Set(reviewsData?.map(r => r.request_id) ?? [])
+        setRequests(requestsData.map(r => ({
+          ...r,
+          reviewed: reviewedRequestIds.has(r.id)
+        })) as Request[])
+      }
+
       setLoading(false)
     }
     init()
@@ -119,8 +142,8 @@ export default function RequesterDashboardPage() {
     if (!error) setRequests(prev => prev.map(r => r.id === id ? { ...r, status: newStatus } : r))
   }
 
-  const handleCancel = async () => {
-    if (!cancelDialog || !cancelReason.trim()) return
+  const handleCancel = async (reason: string) => {
+    if (!cancelDialog || !reason.trim()) return
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: userProfile } = await supabase
@@ -228,6 +251,42 @@ export default function RequesterDashboardPage() {
       setOrders(prev => prev.map(o => o.id === orderId ? { ...o, reviewed: true } : o))
     }
     setReviewTarget(null)
+  }
+
+  const handleRequestReviewSubmit = async (requestId: string, rating: number, comment: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: clientProfile } = await supabase
+      .from('profiles').select('full_name').eq('id', user.id).single()
+
+    const { data: reqData } = await supabase
+      .from('requests')
+      .select('provider_id, title')
+      .eq('id', requestId)
+      .single()
+
+    if (reqData && reqData.provider_id) {
+      await supabase.from('reviews').insert({
+        request_id: requestId,
+        client_id: user.id,
+        provider_id: reqData.provider_id,
+        rating,
+        comment,
+      })
+
+      await notifyNewRating(
+        reqData.provider_id,
+        clientProfile?.full_name ?? '',
+        reqData.title,
+        rating
+      )
+
+      setRequests(prev => prev.map(r =>
+        r.id === requestId ? { ...r, reviewed: true } : r
+      ))
+    }
+    setRequestReviewTarget(null)
   }
 
   const formatPrice = (min: number, max?: number | null) => {
@@ -386,7 +445,12 @@ export default function RequesterDashboardPage() {
 
                   {request.status === 'ongoing' && (
                     <Button variant="outline" size="sm" className="w-full text-xs rounded-xl text-red-500 hover:border-red-200"
-                      onClick={() => setCancelDialog({ id: request.id, type: 'request' })}>
+                      onClick={() => setCancelDialog({
+                        id: request.id,
+                        type: 'request',
+                        title: request.title,
+                        role: 'client'
+                      })}>
                       Batalkan Request
                     </Button>
                   )}
@@ -398,8 +462,25 @@ export default function RequesterDashboardPage() {
                     </Button>
                   )}
 
-                  {request.status === 'completed' && (
-                    <p className="text-xs text-green-600 font-medium text-center">✓ Selesai</p>
+                  {request.status === 'completed' && !request.reviewed && (
+                    <Button
+                      size="sm"
+                      className="w-full text-xs rounded-xl bg-gray-900 hover:bg-gray-700"
+                      onClick={() => setRequestReviewTarget({
+                        requestId: request.id,
+                        requestTitle: request.title,
+                        providerName: request.profiles?.full_name ?? '',
+                        providerProdi: request.profiles?.prodi ?? '',
+                        providerAngkatan: '',
+                        providerAvatar: request.profiles?.avatar_url ?? '',
+                      })}
+                    >
+                      <Star className="w-3 h-3 mr-1" />Beri Ulasan
+                    </Button>
+                  )}
+
+                  {request.status === 'completed' && request.reviewed && (
+                    <p className="text-xs text-green-600 font-medium text-center">✓ Sudah diulas</p>
                   )}
                 </motion.div>
               ))}
@@ -460,7 +541,12 @@ export default function RequesterDashboardPage() {
                   {order.status === 'ongoing' && (
                     <div className="grid grid-cols-2 gap-2">
                       <Button variant="outline" size="sm" className="text-xs rounded-xl text-red-500 hover:border-red-200"
-                        onClick={() => setCancelDialog({ id: order.id, type: 'order' })}>Batalkan</Button>
+                        onClick={() => setCancelDialog({
+                          id: order.id,
+                          type: 'order',
+                          title: order.services?.title ?? '',
+                          role: 'client'
+                        })}>Batalkan</Button>
                       <Button size="sm" className="text-xs rounded-xl bg-gray-200 text-gray-500" disabled>Menunggu Provider</Button>
                     </div>
                   )}
@@ -494,28 +580,18 @@ export default function RequesterDashboardPage() {
         )}
       </div>
 
-      {/* Cancel Dialog */}
-      <AnimatePresence>
-        {cancelDialog && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl p-6 w-full max-w-sm">
-              <h3 className="font-bold text-lg mb-2">Batalkan?</h3>
-              <p className="text-sm text-gray-500 mb-4">Berikan alasan pembatalan.</p>
-              <textarea placeholder="Alasan pembatalan..." value={cancelReason}
-                onChange={e => setCancelReason(e.target.value)} rows={3}
-                className="w-full px-3 py-2 text-sm rounded-xl border border-input bg-white placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none mb-4" />
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 rounded-xl"
-                  onClick={() => { setCancelDialog(null); setCancelReason('') }}>Kembali</Button>
-                <Button className="flex-1 bg-red-500 hover:bg-red-600 text-white rounded-xl"
-                  disabled={!cancelReason.trim()} onClick={handleCancel}>Batalkan</Button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Cancel Modal */}
+      <CancelModal
+        open={!!cancelDialog}
+        title={cancelDialog?.title ?? ''}
+        type={cancelDialog?.type ?? 'order'}
+        role={cancelDialog?.role ?? 'client'}
+        onClose={() => setCancelDialog(null)}
+        onConfirm={(reason) => {
+          handleCancel(reason)
+          setCancelDialog(null)
+        }}
+      />
 
       {/* Review Modal */}
       {reviewTarget && (
@@ -529,6 +605,20 @@ export default function RequesterDashboardPage() {
           providerAvatar={reviewTarget.providerAvatar}
           onClose={() => setReviewTarget(null)}
           onSubmit={handleReviewSubmit}
+        />
+      )}
+
+      {requestReviewTarget && (
+        <ReviewModal
+          open={!!requestReviewTarget}
+          orderId={requestReviewTarget.requestId}
+          serviceTitle={requestReviewTarget.requestTitle}
+          providerName={requestReviewTarget.providerName}
+          providerProdi={requestReviewTarget.providerProdi}
+          providerAngkatan={requestReviewTarget.providerAngkatan}
+          providerAvatar={requestReviewTarget.providerAvatar}
+          onClose={() => setRequestReviewTarget(null)}
+          onSubmit={(id, rating, comment) => handleRequestReviewSubmit(id, rating, comment)}
         />
       )}
     </div>
