@@ -256,46 +256,63 @@ export default function RequesterDashboardPage() {
   const confirmOrderDone = async (id: string) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    const { data, error } = await supabase.from('orders').update({ status: 'completed' }).eq('id', id).select()
-    if (error || !data?.length) return
 
     const { data: orderData } = await supabase
-      .from('orders').select('provider_id, payment_status, amount, services(title)').eq('id', id).single()
-    const { data: clientProfile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single()
+      .from('orders')
+      .select('provider_id, payment_status, amount, services(title)')
+      .eq('id', id)
+      .single()
+    if (!orderData) return
 
-    if (orderData) {
-      if (orderData.payment_status === 'paid' && orderData.amount) {
-        const { data: providerBalance } = await supabase
-          .from('profiles').select('balance').eq('id', orderData.provider_id).single()
-        await supabase.from('profiles')
-          .update({ balance: (providerBalance?.balance ?? 0) + orderData.amount }).eq('id', orderData.provider_id)
-        await supabase.from('orders').update({ payment_status: 'settled' }).eq('id', id)
-      }
-      await notifyOrderConfirmedByClient(orderData.provider_id, clientProfile?.full_name ?? '', (orderData.services as any)?.title ?? '')
+    const { data: clientProfile } = await supabase
+      .from('profiles').select('full_name').eq('id', user.id).single()
+
+    const { error } = await supabase.from('orders').update({ status: 'completed' }).eq('id', id)
+    if (error) return
+
+    if (orderData.payment_status === 'paid' && orderData.amount) {
+      const { data: providerBalance } = await supabase
+        .from('profiles').select('balance').eq('id', orderData.provider_id).single()
+      await supabase.from('profiles')
+        .update({ balance: (providerBalance?.balance ?? 0) + orderData.amount }).eq('id', orderData.provider_id)
+      await supabase.from('orders').update({ payment_status: 'settled' }).eq('id', id)
     }
 
+    await notifyOrderConfirmedByClient(
+      orderData.provider_id, clientProfile?.full_name ?? '', (orderData.services as any)?.title ?? ''
+    )
     setOrders(prev => prev.map(o =>
-      o.id === id ? { ...o, status: 'completed', payment_status: orderData?.payment_status === 'paid' ? 'settled' : o.payment_status } : o))
+      o.id === id ? { ...o, status: 'completed', payment_status: orderData.payment_status === 'paid' ? 'settled' : o.payment_status } : o))
   }
 
   const confirmRequestDone = async (id: string) => {
-    const request = requests.find(r => r.id === id)
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: requesterProfile } = await supabase.from('profiles').select('full_name').eq('id', user!.id).single()
-    const { data: reqData } = await supabase.from('requests').select('provider_id, title').eq('id', id).single()
+    if (!user) return
+
+    const { data: reqData } = await supabase
+      .from('requests')
+      .select('provider_id, title, payment_status, amount')
+      .eq('id', id)
+      .single()
+    if (!reqData || !reqData.provider_id) return
+
+    const { data: requesterProfile } = await supabase
+      .from('profiles').select('full_name').eq('id', user.id).single()
+
     const { error } = await supabase.from('requests').update({ status: 'completed' }).eq('id', id)
-    if (!error && reqData && reqData.provider_id) {
-      if (request?.payment_status === 'paid' && request.amount) {
-        const { data: providerBalance } = await supabase
-          .from('profiles').select('balance').eq('id', reqData.provider_id).single()
-        await supabase.from('profiles')
-          .update({ balance: (providerBalance?.balance ?? 0) + request.amount }).eq('id', reqData.provider_id)
-        await supabase.from('requests').update({ payment_status: 'settled' }).eq('id', id)
-      }
-      await notifyRequestConfirmedByRequester(reqData.provider_id, requesterProfile?.full_name ?? '', reqData.title)
-      setRequests(prev => prev.map(r =>
-        r.id === id ? { ...r, status: 'completed', payment_status: request?.payment_status === 'paid' ? 'settled' : r.payment_status } : r))
+    if (error) return
+
+    if (reqData.payment_status === 'paid' && reqData.amount) {
+      const { data: providerBalance } = await supabase
+        .from('profiles').select('balance').eq('id', reqData.provider_id).single()
+      await supabase.from('profiles')
+        .update({ balance: (providerBalance?.balance ?? 0) + reqData.amount }).eq('id', reqData.provider_id)
+      await supabase.from('requests').update({ payment_status: 'settled' }).eq('id', id)
     }
+
+    await notifyRequestConfirmedByRequester(reqData.provider_id, requesterProfile?.full_name ?? '', reqData.title)
+    setRequests(prev => prev.map(r =>
+      r.id === id ? { ...r, status: 'completed', payment_status: reqData.payment_status === 'paid' ? 'settled' : r.payment_status } : r))
   }
 
   const handleReviewSubmit = async (orderId: string, rating: number, comment: string) => {
