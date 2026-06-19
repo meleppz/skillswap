@@ -239,18 +239,32 @@ export default function RequesterDashboardPage() {
     setRefundDialog(null)
   }
 
-  const handleApproveRefund = async (orderId: string) => {
-    const order = orders.find(o => o.id === orderId)
-    if (!order || !order.amount) return
-    const { data: clientData } = await supabase.from('profiles').select('balance').eq('id', userId!).single()
-    await supabase.from('profiles')
-      .update({ balance: (clientData?.balance ?? 0) + order.amount }).eq('id', userId!)
-    await supabase.from('orders')
-      .update({ payment_status: 'refunded', refund_approved: true, status: 'cancelled_by_provider' })
-      .eq('id', orderId)
-    await notifyRefundApproved(userId!, order.services?.title ?? '')
-    setOrders(prev => prev.map(o =>
-      o.id === orderId ? { ...o, payment_status: 'refunded', status: 'cancelled_by_provider' } : o))
+  const handleApproveRefund = async (id: string, type: 'order' | 'request') => {
+    if (type === 'order') {
+      const order = orders.find(o => o.id === id)
+      if (!order || !order.amount) return
+      const { data: clientData } = await supabase.from('profiles').select('balance').eq('id', userId!).single()
+      await supabase.from('profiles')
+        .update({ balance: (clientData?.balance ?? 0) + order.amount }).eq('id', userId!)
+      await supabase.from('orders')
+        .update({ payment_status: 'refunded', refund_approved: true, status: 'cancelled_by_provider' })
+        .eq('id', id)
+      await notifyRefundApproved(userId!, order.services?.title ?? '')
+      setOrders(prev => prev.map(o =>
+        o.id === id ? { ...o, payment_status: 'refunded', status: 'cancelled_by_provider' } : o))
+    } else {
+      const request = requests.find(r => r.id === id)
+      if (!request || !request.amount) return
+      const { data: clientData } = await supabase.from('profiles').select('balance').eq('id', userId!).single()
+      await supabase.from('profiles')
+        .update({ balance: (clientData?.balance ?? 0) + request.amount }).eq('id', userId!)
+      await supabase.from('requests')
+        .update({ payment_status: 'refunded', refund_approved: true, status: 'cancelled_by_provider' })
+        .eq('id', id)
+      await notifyRefundApproved(userId!, request.title)
+      setRequests(prev => prev.map(r =>
+        r.id === id ? { ...r, payment_status: 'refunded', status: 'cancelled_by_provider' } : r))
+    }
   }
 
   const confirmOrderDone = async (id: string) => {
@@ -271,11 +285,7 @@ export default function RequesterDashboardPage() {
     if (error) return
 
     if (orderData.payment_status === 'paid' && orderData.amount) {
-      const { data: providerBalance } = await supabase
-        .from('profiles').select('balance').eq('id', orderData.provider_id).single()
-      await supabase.from('profiles')
-        .update({ balance: (providerBalance?.balance ?? 0) + orderData.amount }).eq('id', orderData.provider_id)
-      await supabase.from('orders').update({ payment_status: 'settled' }).eq('id', id)
+      await supabase.rpc('add_balance', { user_id: orderData.provider_id, amount: orderData.amount })
     }
 
     await notifyOrderConfirmedByClient(
@@ -303,11 +313,7 @@ export default function RequesterDashboardPage() {
     if (error) return
 
     if (reqData.payment_status === 'paid' && reqData.amount) {
-      const { data: providerBalance } = await supabase
-        .from('profiles').select('balance').eq('id', reqData.provider_id).single()
-      await supabase.from('profiles')
-        .update({ balance: (providerBalance?.balance ?? 0) + reqData.amount }).eq('id', reqData.provider_id)
-      await supabase.from('requests').update({ payment_status: 'settled' }).eq('id', id)
+      await supabase.rpc('add_balance', { user_id: reqData.provider_id, amount: reqData.amount })
     }
 
     await notifyRequestConfirmedByRequester(reqData.provider_id, requesterProfile?.full_name ?? '', reqData.title)
@@ -518,14 +524,13 @@ export default function RequesterDashboardPage() {
                       </Button>
                     )}
 
-                    {/* Refund requested by provider */}
                     {refundRequestedByOther && (
                       <div className="space-y-2">
                         <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg p-2">
                           Provider mengajukan refund. Setujui untuk mengembalikan dana.
                         </p>
                         <Button size="sm" className="w-full text-xs rounded-xl bg-[#FF6647] hover:bg-[#e5583d] text-white"
-                          onClick={() => handleApproveRefund(request.id)}>
+                          onClick={() => handleApproveRefund(request.id, 'request')}>
                           Setujui Refund
                         </Button>
                       </div>
@@ -657,7 +662,7 @@ export default function RequesterDashboardPage() {
                           Provider mengajukan refund. Setujui untuk mengembalikan dana.
                         </p>
                         <Button size="sm" className="w-full text-xs rounded-xl bg-[#FF6647] hover:bg-[#e5583d] text-white"
-                          onClick={() => handleApproveRefund(order.id)}>
+                          onClick={() => handleApproveRefund(order.id, 'order')}>
                           Setujui Refund
                         </Button>
                       </div>

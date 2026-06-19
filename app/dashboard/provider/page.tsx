@@ -198,14 +198,8 @@ export default function ProviderDashboardPage() {
         cancel_reason: reason,
       }
 
-      // If paid, refund to client
       if (orderData?.payment_status === 'paid' && orderData.amount) {
-        const { data: clientProfile } = await supabase
-          .from('profiles').select('balance').eq('id', orderData.client_id).single()
-        await supabase
-          .from('profiles')
-          .update({ balance: (clientProfile?.balance ?? 0) + orderData.amount })
-          .eq('id', orderData.client_id)
+        await supabase.rpc('add_balance', { user_id: orderData.client_id, amount: orderData.amount })
         updatePayload.payment_status = 'refunded'
       }
 
@@ -231,10 +225,7 @@ export default function ProviderDashboardPage() {
       }
 
       if (reqData?.payment_status === 'paid' && reqData.amount && reqData.requester_id) {
-        const { data: requesterProfile } = await supabase
-          .from('profiles').select('balance').eq('id', reqData.requester_id).single()
-        await supabase.from('profiles')
-          .update({ balance: (requesterProfile?.balance ?? 0) + reqData.amount }).eq('id', reqData.requester_id)
+        await supabase.rpc('add_balance', { user_id: reqData.requester_id, amount: reqData.amount })
         updatePayload.payment_status = 'refunded'
       }
 
@@ -278,13 +269,7 @@ export default function ProviderDashboardPage() {
     const order = orders.find(o => o.id === orderId)
     if (!order || !order.amount) return
 
-    const { data: clientData } = await supabase
-      .from('profiles').select('balance').eq('id', order.client_id).single()
-
-    await supabase
-      .from('profiles')
-      .update({ balance: (clientData?.balance ?? 0) + order.amount })
-      .eq('id', order.client_id)
+    await supabase.rpc('add_balance', { user_id: order.client_id, amount: order.amount })
 
     await supabase
       .from('orders')
