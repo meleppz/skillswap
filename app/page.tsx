@@ -3,7 +3,6 @@
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 
-const NAV_LINKS = ['Homepage', 'Homepage', 'Homepage', 'Dashboard']
 
 const STATS = [
   { value: '200+', label: 'Pengguna Aktif Terverifikasi' },
@@ -53,13 +52,6 @@ export default function LandingPage() {
       <nav className="sticky top-0 z-50 bg-white border-b border-gray-200 px-8 py-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <Image src="/logo.png" alt="SkillSwap" width={120} height={32} className="object-contain" />
-          <div className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.map((link, i) => (
-              <a key={i} href="#" className="text-sm text-gray-700 hover:text-black transition-colors">
-                {link}
-              </a>
-            ))}
-          </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.push('/login')}
