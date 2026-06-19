@@ -12,6 +12,9 @@ type NotificationType =
   | 'request_cancelled_by_provider'
   | 'request_cancelled_by_requester'
   | 'request_confirmed_by_requester'
+  | 'payment_confirmed'
+  | 'refund_requested'
+  | 'refund_approved'
 
 type SendNotificationParams = {
   userId: string
@@ -134,5 +137,41 @@ export async function notifyRequestConfirmedByRequester(providerId: string, requ
     type: 'request_confirmed_by_requester',
     title: 'Request Dikonfirmasi Selesai',
     message: `${requesterName} mengkonfirmasi request "${requestTitle}" selesai`,
+  })
+}
+
+export async function notifyRequestPaid(providerId: string, requesterName: string, requestTitle: string, amount: number) {
+  await sendNotification({
+    userId: providerId,
+    type: 'payment_confirmed',
+    title: 'Requester Sudah Bayar!',
+    message: `${requesterName} sudah membayar Rp${amount.toLocaleString('id-ID')} untuk request "${requestTitle}". Mulai kerjakan sekarang!`,
+  })
+}
+
+export async function notifyPaymentConfirmed(providerId: string, clientName: string, serviceTitle: string, amount: number) {
+  await sendNotification({
+    userId: providerId,
+    type: 'payment_confirmed',
+    title: 'Pembayaran Diterima!',
+    message: `${clientName} telah membayar Rp${amount.toLocaleString('id-ID')} untuk "${serviceTitle}"`,
+  })
+}
+
+export async function notifyRefundRequested(recipientId: string, requesterName: string, title: string) {
+  await sendNotification({
+    userId: recipientId,
+    type: 'refund_requested',
+    title: 'Permintaan Refund',
+    message: `${requesterName} mengajukan refund untuk "${title}"`,
+  })
+}
+
+export async function notifyRefundApproved(clientId: string, serviceTitle: string) {
+  await sendNotification({
+    userId: clientId,
+    type: 'refund_approved',
+    title: 'Refund Disetujui',
+    message: `Refund untuk "${serviceTitle}" telah disetujui. Saldo sudah dikembalikan.`,
   })
 }

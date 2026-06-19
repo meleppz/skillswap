@@ -12,6 +12,10 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --brand-orange: #FF6647;
+  --brand-blue: #074DDB;
+  --status-ok: #4AC204;
+  --status-cancel: #FF474A;
   --background: 0 0% 100%;
   --foreground: 222 47% 11%;
   --card: 0 0% 100%;

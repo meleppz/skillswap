@@ -82,7 +82,7 @@ export default function ProfilePage() {
         `)
         .eq('provider_id', user.id)
         .order('created_at', { ascending: false })
-      if (servicesData) setServices(servicesData as Service[])
+      if (servicesData) setServices(servicesData as unknown as Service[])
 
       // Get ALL reviews (from both service orders and requests)
       const { data: reviewsData } = await supabase
@@ -95,7 +95,7 @@ export default function ProfilePage() {
         `)
         .eq('provider_id', user.id)
         .order('created_at', { ascending: false })
-      if (reviewsData) setReviews(reviewsData as Review[])
+      if (reviewsData) setReviews(reviewsData as unknown as Review[])
 
       // Get bookmarks
       const { data: bookmarksData } = await supabase
@@ -113,7 +113,7 @@ export default function ProfilePage() {
         const bookmarkedServices = bookmarksData
           .map((b: any) => b.services)
           .filter(Boolean)
-        setBookmarks(bookmarkedServices as Service[])
+        setBookmarks(bookmarkedServices as unknown as Service[])
       }
 
       setLoading(false)

@@ -3,8 +3,8 @@
 import { createClient } from '@/lib/supabase'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Plus, Star, ToggleLeft, ToggleRight, Edit, Trash2 } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { ArrowLeft, Plus, Star, ToggleLeft, ToggleRight, Edit, Trash2, Wallet } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,8 +14,11 @@ import {
   notifyOrderDoneByProvider,
   notifyRequestCancelledByProvider,
   notifyRequestDoneByProvider,
+  notifyRefundRequested,
+  notifyRefundApproved,
 } from '@/lib/notifications'
 import CancelModal from '@/components/modals/cancel-modal'
+import RefundModal from '@/components/modals/refund-modal'
 
 type Service = {
   id: string
@@ -32,6 +35,10 @@ type Order = {
   status: string
   created_at: string
   cancel_reason: string | null
+  payment_status: string | null
+  amount: number | null
+  refund_requested_by: string | null
+  client_id: string
   profiles: { full_name: string; prodi: string; angkatan: string; avatar_url: string } | null
   services: { title: string } | null
 }
@@ -42,20 +49,32 @@ type RequestOrder = {
   deadline: string
   status: string
   cancel_reason: string | null
+  payment_status: string | null
+  amount: number | null
+  requester_id: string | null
   profiles: { full_name: string; prodi: string; angkatan: string; avatar_url: string } | null
 }
 
 const ORDER_STATUS: Record<string, { label: string; color: string }> = {
-  ongoing: { label: 'Menunggu', color: 'bg-yellow-100 text-yellow-700' },
+  ongoing: { label: 'Menunggu', color: 'bg-[#4AC204]/10 text-[#4AC204]' },
   need_review: { label: 'Perlu Review', color: 'bg-blue-100 text-blue-700' },
-  completed: { label: 'Selesai', color: 'bg-green-100 text-green-700' },
-  cancelled_by_client: { label: 'Dibatalkan Client', color: 'bg-red-100 text-red-700' },
-  cancelled_by_provider: { label: 'Dibatalkan', color: 'bg-red-100 text-red-700' },
+  completed: { label: 'Selesai', color: 'bg-[#4AC204]/10 text-[#4AC204]' },
+  cancelled_by_client: { label: 'Dibatalkan Client', color: 'bg-[#FF474A]/10 text-[#FF474A]' },
+  cancelled_by_provider: { label: 'Dibatalkan', color: 'bg-[#FF474A]/10 text-[#FF474A]' },
+}
+
+const PAYMENT_BADGE: Record<string, { label: string; color: string }> = {
+  unpaid: { label: 'Belum Bayar', color: 'bg-orange-100 text-orange-700' },
+  paid: { label: 'Lunas', color: 'bg-[#4AC204]/10 text-[#4AC204]' },
+  refund_requested: { label: 'Refund Diajukan', color: 'bg-yellow-100 text-yellow-700' },
+  refunded: { label: 'Direfund', color: 'bg-gray-100 text-gray-500' },
+  settled: { label: 'Dana Diterima', color: 'bg-blue-100 text-blue-700' },
 }
 
 export default function ProviderDashboardPage() {
   const supabase = createClient()
   const router = useRouter()
+  const [userId, setUserId] = useState<string | null>(null)
   const [services, setServices] = useState<Service[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [requestOrders, setRequestOrders] = useState<RequestOrder[]>([])
@@ -63,13 +82,24 @@ export default function ProviderDashboardPage() {
   const [activeServiceFilter, setActiveServiceFilter] = useState('Semua')
   const [activeOrderFilter, setActiveOrderFilter] = useState('Semua')
   const [loading, setLoading] = useState(true)
-  const [cancelDialog, setCancelDialog] = useState<{ id: string; type: 'order' | 'request' } | null>(null)
-  const [cancelReason, setCancelReason] = useState('')
+  const [cancelDialog, setCancelDialog] = useState<{
+    id: string
+    type: 'order' | 'request'
+    title: string
+    role: 'client' | 'provider'
+  } | null>(null)
+  const [refundDialog, setRefundDialog] = useState<{
+    orderId: string
+    title: string
+    amount: number
+    clientId: string
+  } | null>(null)
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
+      setUserId(user.id)
 
       const { data: servicesData } = await supabase
         .from('services')
@@ -80,23 +110,24 @@ export default function ProviderDashboardPage() {
         `)
         .eq('provider_id', user.id)
         .order('created_at', { ascending: false })
-      if (servicesData) setServices(servicesData as Service[])
+      if (servicesData) setServices(servicesData as unknown as Service[])
 
       const { data: ordersData } = await supabase
         .from('orders')
         .select(`
           id, status, created_at, cancel_reason,
+          payment_status, amount, refund_requested_by, client_id,
           profiles!orders_client_id_fkey ( full_name, prodi, angkatan, avatar_url ),
           services ( title )
         `)
         .eq('provider_id', user.id)
         .order('created_at', { ascending: false })
-      if (ordersData) setOrders(ordersData as Order[])
+      if (ordersData) setOrders(ordersData as unknown as Order[])
 
       const { data: requestOrdersData } = await supabase
         .from('requests')
         .select(`
-          id, title, deadline, status, cancel_reason,
+          id, title, deadline, status, cancel_reason, payment_status, amount, requester_id,
           profiles!requests_requester_id_fkey ( full_name, prodi, angkatan, avatar_url )
         `)
         .eq('provider_id', user.id)
@@ -104,7 +135,7 @@ export default function ProviderDashboardPage() {
         .not('status', 'eq', 'freeze')
         .not('status', 'eq', 'expired')
         .order('created_at', { ascending: false })
-      if (requestOrdersData) setRequestOrders(requestOrdersData as RequestOrder[])
+      if (requestOrdersData) setRequestOrders(requestOrdersData as unknown as RequestOrder[])
 
       setLoading(false)
     }
@@ -112,10 +143,7 @@ export default function ProviderDashboardPage() {
   }, [])
 
   const toggleAvailability = async (id: string, current: boolean) => {
-    const { error } = await supabase
-      .from('services')
-      .update({ is_available: !current })
-      .eq('id', id)
+    const { error } = await supabase.from('services').update({ is_available: !current }).eq('id', id)
     if (!error) setServices(prev => prev.map(s => s.id === id ? { ...s, is_available: !current } : s))
   }
 
@@ -130,15 +158,9 @@ export default function ProviderDashboardPage() {
     if (!error) {
       if (status === 'need_review') {
         const { data: orderData } = await supabase
-          .from('orders')
-          .select('client_id, services(title)')
-          .eq('id', id)
-          .single()
+          .from('orders').select('client_id, services(title)').eq('id', id).single()
         if (orderData) {
-          await notifyOrderDoneByProvider(
-            orderData.client_id,
-            (orderData.services as any)?.title ?? ''
-          )
+          await notifyOrderDoneByProvider(orderData.client_id, (orderData.services as any)?.title ?? '')
         }
       }
       setOrders(prev => prev.map(o => o.id === id ? { ...o, status } : o))
@@ -150,10 +172,7 @@ export default function ProviderDashboardPage() {
     if (!error) {
       if (status === 'need_review') {
         const { data: reqData } = await supabase
-          .from('requests')
-          .select('requester_id, title')
-          .eq('id', id)
-          .single()
+          .from('requests').select('requester_id, title').eq('id', id).single()
         if (reqData) {
           await notifyRequestDoneByProvider(reqData.requester_id, reqData.title)
         }
@@ -167,61 +186,118 @@ export default function ProviderDashboardPage() {
 
     const { data: { user } } = await supabase.auth.getUser()
     const { data: providerProfile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', user!.id)
-      .single()
+      .from('profiles').select('full_name').eq('id', user!.id).single()
     const providerName = providerProfile?.full_name ?? 'Provider'
 
     if (cancelDialog.type === 'order') {
       const { data: orderData } = await supabase
-        .from('orders')
-        .select('client_id, services(title)')
-        .eq('id', cancelDialog.id)
-        .single()
+        .from('orders').select('client_id, payment_status, amount, services(title)').eq('id', cancelDialog.id).single()
+
+      const updatePayload: Record<string, unknown> = {
+        status: 'cancelled_by_provider',
+        cancel_reason: reason,
+      }
+
+      // If paid, refund to client
+      if (orderData?.payment_status === 'paid' && orderData.amount) {
+        const { data: clientProfile } = await supabase
+          .from('profiles').select('balance').eq('id', orderData.client_id).single()
+        await supabase
+          .from('profiles')
+          .update({ balance: (clientProfile?.balance ?? 0) + orderData.amount })
+          .eq('id', orderData.client_id)
+        updatePayload.payment_status = 'refunded'
+      }
 
       const { error } = await supabase
-        .from('orders')
-        .update({ status: 'cancelled_by_provider', cancel_reason: cancelReason })
-        .eq('id', cancelDialog.id)
+        .from('orders').update(updatePayload).eq('id', cancelDialog.id)
 
       if (!error && orderData) {
         await notifyOrderCancelledByProvider(
-          orderData.client_id,
-          providerName,
-          (orderData.services as any)?.title ?? ''
+          orderData.client_id, providerName, (orderData.services as any)?.title ?? ''
         )
         setOrders(prev => prev.map(o => o.id === cancelDialog.id
-          ? { ...o, status: 'cancelled_by_provider', cancel_reason: cancelReason } : o))
+          ? { ...o, status: 'cancelled_by_provider', cancel_reason: reason, payment_status: updatePayload.payment_status as string ?? o.payment_status }
+          : o))
       }
     } else {
       const { data: reqData } = await supabase
-        .from('requests')
-        .select('requester_id, title')
-        .eq('id', cancelDialog.id)
-        .single()
+        .from('requests').select('requester_id, title, payment_status, amount').eq('id', cancelDialog.id).single()
+
+      const updatePayload: Record<string, unknown> = {
+        status: 'cancelled_by_provider',
+        cancel_reason: reason,
+        provider_id: null,
+      }
+
+      if (reqData?.payment_status === 'paid' && reqData.amount && reqData.requester_id) {
+        const { data: requesterProfile } = await supabase
+          .from('profiles').select('balance').eq('id', reqData.requester_id).single()
+        await supabase.from('profiles')
+          .update({ balance: (requesterProfile?.balance ?? 0) + reqData.amount }).eq('id', reqData.requester_id)
+        updatePayload.payment_status = 'refunded'
+      }
 
       const { error } = await supabase
-        .from('requests')
-        .update({
-          status: 'cancelled_by_provider',
-          cancel_reason: cancelReason,
-          provider_id: null,
-        })
-        .eq('id', cancelDialog.id)
+        .from('requests').update(updatePayload).eq('id', cancelDialog.id)
 
       if (!error && reqData) {
-        await notifyRequestCancelledByProvider(
-          reqData.requester_id,
-          providerName,
-          reqData.title
-        )
+        await notifyRequestCancelledByProvider(reqData.requester_id, providerName, reqData.title)
         setRequestOrders(prev => prev.filter(o => o.id !== cancelDialog.id))
       }
     }
 
     setCancelDialog(null)
-    setCancelReason('')
+  }
+
+  const handleRefundRequest = async (reason: string) => {
+    if (!refundDialog || !userId) return
+
+    const { data: providerProfile } = await supabase
+      .from('profiles').select('full_name').eq('id', userId).single()
+    const providerName = providerProfile?.full_name ?? 'Provider'
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ payment_status: 'refund_requested', refund_requested_by: userId })
+      .eq('id', refundDialog.orderId)
+
+    if (!error) {
+      await notifyRefundRequested(refundDialog.clientId, providerName, refundDialog.title)
+      setOrders(prev => prev.map(o =>
+        o.id === refundDialog.orderId
+          ? { ...o, payment_status: 'refund_requested', refund_requested_by: userId }
+          : o
+      ))
+    }
+
+    setRefundDialog(null)
+  }
+
+  const handleApproveRefund = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId)
+    if (!order || !order.amount) return
+
+    const { data: clientData } = await supabase
+      .from('profiles').select('balance').eq('id', order.client_id).single()
+
+    await supabase
+      .from('profiles')
+      .update({ balance: (clientData?.balance ?? 0) + order.amount })
+      .eq('id', order.client_id)
+
+    await supabase
+      .from('orders')
+      .update({ payment_status: 'refunded', refund_approved: true, status: 'cancelled_by_client' })
+      .eq('id', orderId)
+
+    await notifyRefundApproved(order.client_id, order.services?.title ?? '')
+
+    setOrders(prev => prev.map(o =>
+      o.id === orderId
+        ? { ...o, payment_status: 'refunded', status: 'cancelled_by_client' }
+        : o
+    ))
   }
 
   const getAvgRating = (reviews: { rating: number }[]) => {
@@ -290,8 +366,8 @@ export default function ProviderDashboardPage() {
             <button
               key={stat.key}
               onClick={() => setActiveSection(stat.key as any)}
-              className={`bg-white border rounded-2xl p-5 text-center transition-all ${
-                activeSection === stat.key ? 'border-gray-900 shadow-sm' : 'border-gray-200'
+              className={`bg-white/80 backdrop-blur-sm border rounded-2xl p-5 text-center transition-all ${
+                activeSection === stat.key ? 'border-[#074DDB] shadow-sm' : 'border-gray-200'
               }`}
             >
               <p className="text-5xl mb-1" style={{ fontFamily: 'HelveticaCompressed, Arial Narrow, sans-serif' }}>
@@ -315,7 +391,7 @@ export default function ProviderDashboardPage() {
               {['Semua', 'Aktif', 'Freeze'].map(f => (
                 <button key={f} onClick={() => setActiveServiceFilter(f)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                    activeServiceFilter === f ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'
+                    activeServiceFilter === f ? 'bg-[#074DDB] text-white border-[#074DDB]' : 'bg-white text-gray-600 border-gray-200'
                   }`}>{f}</button>
               ))}
             </div>
@@ -326,10 +402,10 @@ export default function ProviderDashboardPage() {
                 const avg = getAvgRating(service.reviews)
                 return (
                   <motion.div key={service.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                    className="bg-white border border-gray-200 rounded-2xl p-5">
+                    className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-5">
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
-                        <Badge variant="outline" className={`text-xs rounded-full mb-2 ${service.is_available ? 'border-green-200 text-green-700' : 'border-gray-200 text-gray-500'}`}>
+                        <Badge variant="outline" className={`text-xs rounded-full mb-2 ${service.is_available ? 'border-[#4AC204]/30 text-[#4AC204]' : 'border-gray-200 text-gray-500'}`}>
                           {service.is_available ? 'Aktif' : 'Freeze'}
                         </Badge>
                         <h3 className="font-bold text-sm">{service.title}</h3>
@@ -355,7 +431,7 @@ export default function ProviderDashboardPage() {
                       <Button variant="outline" size="sm" className="text-xs rounded-xl" onClick={() => toggleAvailability(service.id, service.is_available)}>
                         {service.is_available ? <><ToggleRight className="w-3 h-3 mr-1" />Freeze</> : <><ToggleLeft className="w-3 h-3 mr-1" />Aktifkan</>}
                       </Button>
-                      <Button variant="outline" size="sm" className="text-xs rounded-xl text-red-500 hover:border-red-200" onClick={() => deleteService(service.id)}>
+                      <Button variant="outline" size="sm" className="text-xs rounded-xl text-[#FF474A] hover:border-[#FF474A]/30" onClick={() => deleteService(service.id)}>
                         <Trash2 className="w-3 h-3 mr-1" />Hapus
                       </Button>
                       <Button variant="outline" size="sm" className="text-xs rounded-xl">
@@ -389,51 +465,113 @@ export default function ProviderDashboardPage() {
               {['Semua', 'Menunggu', 'Selesai', 'Dibatalkan'].map(f => (
                 <button key={f} onClick={() => setActiveOrderFilter(f)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                    activeOrderFilter === f ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'
+                    activeOrderFilter === f ? 'bg-[#074DDB] text-white border-[#074DDB]' : 'bg-white text-gray-600 border-gray-200'
                   }`}>{f}</button>
               ))}
             </div>
             <div className="space-y-4">
               {filteredOrders.length === 0 ? (
                 <div className="text-center py-12 text-gray-400"><p className="text-sm">Tidak ada pesanan</p></div>
-              ) : filteredOrders.map((order, i) => (
-                <motion.div key={order.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                  className="bg-white border border-gray-200 rounded-2xl p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="w-9 h-9">
-                        <AvatarImage src={order.profiles?.avatar_url} />
-                        <AvatarFallback className="bg-gray-100 text-gray-600 text-sm">{order.profiles?.full_name?.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-semibold text-sm">{order.profiles?.full_name}</p>
-                        <p className="text-xs text-gray-500">{order.profiles?.prodi}</p>
+              ) : filteredOrders.map((order, i) => {
+                const payBadge = order.payment_status ? PAYMENT_BADGE[order.payment_status] : null
+                const refundRequestedByClient = order.payment_status === 'refund_requested' && order.refund_requested_by !== userId
+                const refundRequestedByMe = order.payment_status === 'refund_requested' && order.refund_requested_by === userId
+
+                return (
+                  <motion.div key={order.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                    className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="w-9 h-9">
+                          <AvatarImage src={order.profiles?.avatar_url} />
+                          <AvatarFallback className="bg-gray-100 text-gray-600 text-sm">{order.profiles?.full_name?.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-semibold text-sm">{order.profiles?.full_name}</p>
+                          <p className="text-xs text-gray-500">{order.profiles?.prodi}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge className={`text-xs rounded-full ${ORDER_STATUS[order.status]?.color}`}>
+                          {ORDER_STATUS[order.status]?.label}
+                        </Badge>
+                        {payBadge && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${payBadge.color}`}>
+                            {payBadge.label}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <Badge className={`text-xs rounded-full ${ORDER_STATUS[order.status]?.color}`}>
-                      {ORDER_STATUS[order.status]?.label}
-                    </Badge>
-                  </div>
-                  <h3 className="font-bold text-sm mb-1">{order.services?.title}</h3>
-                  <p className="text-xs text-gray-400 mb-3">{formatDate(order.created_at)}</p>
-                  {order.cancel_reason && (
-                    <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 mb-3">Alasan: {order.cancel_reason}</p>
-                  )}
-                  {order.status === 'ongoing' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button variant="outline" size="sm" className="text-xs rounded-xl text-red-500 hover:border-red-200"
-                        onClick={() => setCancelDialog({
-                          id: order.id,
-                          type: 'order',
-                          title: order.services?.title ?? '',
-                          role: 'provider'
-                        })}>Batalkan</Button>
-                      <Button size="sm" className="text-xs rounded-xl bg-gray-900 hover:bg-gray-700"
-                        onClick={() => updateOrderStatus(order.id, 'need_review')}>Tandai Selesai</Button>
-                    </div>
-                  )}
-                </motion.div>
-              ))}
+
+                    <h3 className="font-bold text-sm mb-1">{order.services?.title}</h3>
+                    <p className="text-xs text-gray-400 mb-1">{formatDate(order.created_at)}</p>
+                    {order.amount && (
+                      <p className="text-xs text-gray-500 flex items-center gap-1 mb-3">
+                        <Wallet className="w-3 h-3" />
+                        {`Rp${order.amount.toLocaleString('id-ID')}`}
+                      </p>
+                    )}
+
+                    {order.cancel_reason && (
+                      <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 mb-3">Alasan: {order.cancel_reason}</p>
+                    )}
+
+                    {/* Unpaid — waiting for client to pay */}
+                    {order.status === 'ongoing' && order.payment_status === 'unpaid' && (
+                      <p className="text-xs text-orange-600 bg-orange-50 rounded-lg p-2">
+                        Menunggu client melakukan pembayaran...
+                      </p>
+                    )}
+
+                    {/* Paid, ongoing — can cancel (refund) or mark done */}
+                    {order.status === 'ongoing' && order.payment_status === 'paid' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button variant="outline" size="sm" className="text-xs rounded-xl text-[#FF474A] hover:border-[#FF474A]/30"
+                          onClick={() => setCancelDialog({
+                            id: order.id, type: 'order', title: order.services?.title ?? '', role: 'provider'
+                          })}>
+                          Batalkan
+                        </Button>
+                        <Button size="sm" className="text-xs rounded-xl bg-[#FF6647] hover:bg-[#e5583d] text-white"
+                          onClick={() => updateOrderStatus(order.id, 'need_review')}>
+                          Tandai Selesai
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Refund requested by client — provider can approve */}
+                    {refundRequestedByClient && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg p-2">
+                          Client mengajukan refund. Setujui untuk mengembalikan dana ke client.
+                        </p>
+                        <Button size="sm" className="w-full text-xs rounded-xl bg-[#FF6647] hover:bg-[#e5583d] text-white"
+                          onClick={() => handleApproveRefund(order.id)}>
+                          Setujui Refund
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Refund requested by me (provider) — waiting for client */}
+                    {refundRequestedByMe && (
+                      <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg p-2">
+                        Menunggu persetujuan refund dari client.
+                      </p>
+                    )}
+
+                    {/* Need review — waiting for client confirmation */}
+                    {order.status === 'need_review' && (
+                      <p className="text-xs text-blue-600 bg-blue-50 rounded-lg p-2">
+                        Menunggu konfirmasi selesai dari client.
+                      </p>
+                    )}
+
+                    {order.status === 'completed' && (
+                      <p className="text-xs text-[#4AC204] font-medium text-center">✓ Selesai</p>
+                    )}
+                  </motion.div>
+                )
+              })}
             </div>
           </motion.div>
         )}
@@ -458,72 +596,101 @@ export default function ProviderDashboardPage() {
               {['Semua', 'Menunggu', 'Selesai', 'Dibatalkan'].map(f => (
                 <button key={f} onClick={() => setActiveOrderFilter(f)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                    activeOrderFilter === f ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'
+                    activeOrderFilter === f ? 'bg-[#074DDB] text-white border-[#074DDB]' : 'bg-white text-gray-600 border-gray-200'
                   }`}>{f}</button>
               ))}
             </div>
             <div className="space-y-4">
               {filteredRequestOrders.length === 0 ? (
                 <div className="text-center py-12 text-gray-400"><p className="text-sm">Tidak ada request</p></div>
-              ) : filteredRequestOrders.map((order, i) => (
-                <motion.div key={order.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                  className="bg-white border border-gray-200 rounded-2xl p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="w-9 h-9">
-                        <AvatarImage src={order.profiles?.avatar_url} />
-                        <AvatarFallback className="bg-gray-100 text-gray-600 text-sm">{order.profiles?.full_name?.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-semibold text-sm">{order.profiles?.full_name}</p>
-                        <p className="text-xs text-gray-500">{order.profiles?.prodi}</p>
+              ) : filteredRequestOrders.map((order, i) => {
+                const payBadge = order.payment_status ? PAYMENT_BADGE[order.payment_status] : null
+                return (
+                  <motion.div key={order.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+                    className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="w-9 h-9">
+                          <AvatarImage src={order.profiles?.avatar_url} />
+                          <AvatarFallback className="bg-gray-100 text-gray-600 text-sm">{order.profiles?.full_name?.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-semibold text-sm">{order.profiles?.full_name}</p>
+                          <p className="text-xs text-gray-500">{order.profiles?.prodi}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge className={`text-xs rounded-full ${ORDER_STATUS[order.status]?.color}`}>
+                          {ORDER_STATUS[order.status]?.label}
+                        </Badge>
+                        {payBadge && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${payBadge.color}`}>
+                            {payBadge.label}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <Badge className={`text-xs rounded-full ${ORDER_STATUS[order.status]?.color}`}>
-                      {ORDER_STATUS[order.status]?.label}
-                    </Badge>
-                  </div>
-                  <h3 className="font-bold text-sm mb-1">{order.title}</h3>
-                  <p className="text-xs text-gray-400 mb-3">
-                    Deadline: {new Date(order.deadline).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </p>
-                  {order.cancel_reason && (
-                    <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 mb-3">Alasan: {order.cancel_reason}</p>
-                  )}
-                  {order.status === 'ongoing' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button variant="outline" size="sm" className="text-xs rounded-xl text-red-500 hover:border-red-200"
-                        onClick={() => setCancelDialog({
-                          id: order.id,
-                          type: 'request',
-                          title: order.title,
-                          role: 'provider'
-                        })}>Batalkan</Button>
-                      <Button size="sm" className="text-xs rounded-xl bg-gray-900 hover:bg-gray-700"
-                        onClick={() => updateRequestStatus(order.id, 'need_review')}>Tandai Selesai</Button>
-                    </div>
-                  )}
-                  {order.status === 'completed' && (
-                    <p className="text-xs text-green-600 font-medium text-center">✓ Selesai</p>
-                  )}
-                </motion.div>
-              ))}
+                    <h3 className="font-bold text-sm mb-1">{order.title}</h3>
+                    <p className="text-xs text-gray-400 mb-3">
+                      Deadline: {new Date(order.deadline).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    {order.cancel_reason && (
+                      <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 mb-3">Alasan: {order.cancel_reason}</p>
+                    )}
+                    {order.status === 'ongoing' && (!order.payment_status || order.payment_status === 'unpaid') && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-orange-600 bg-orange-50 rounded-lg p-2">
+                          Menunggu requester melakukan pembayaran...
+                        </p>
+                        <Button variant="outline" size="sm" className="w-full text-xs rounded-xl text-[#FF474A] hover:border-[#FF474A]/30"
+                          onClick={() => setCancelDialog({ id: order.id, type: 'request', title: order.title, role: 'provider' })}>
+                          Batalkan
+                        </Button>
+                      </div>
+                    )}
+                    {order.status === 'ongoing' && order.payment_status === 'paid' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button variant="outline" size="sm" className="text-xs rounded-xl text-[#FF474A] hover:border-[#FF474A]/30"
+                          onClick={() => setCancelDialog({ id: order.id, type: 'request', title: order.title, role: 'provider' })}>
+                          Batalkan
+                        </Button>
+                        <Button size="sm" className="text-xs rounded-xl bg-[#FF6647] hover:bg-[#e5583d] text-white"
+                          onClick={() => updateRequestStatus(order.id, 'need_review')}>
+                          Tandai Selesai
+                        </Button>
+                      </div>
+                    )}
+                    {order.status === 'need_review' && (
+                      <p className="text-xs text-blue-600 bg-blue-50 rounded-lg p-2">
+                        Menunggu konfirmasi selesai dari requester.
+                      </p>
+                    )}
+                    {order.status === 'completed' && (
+                      <p className="text-xs text-[#4AC204] font-medium text-center">✓ Selesai</p>
+                    )}
+                  </motion.div>
+                )
+              })}
             </div>
           </motion.div>
         )}
       </div>
 
-      {/* Cancel Modal */}
       <CancelModal
         open={!!cancelDialog}
         title={cancelDialog?.title ?? ''}
         type={cancelDialog?.type ?? 'order'}
         role={cancelDialog?.role ?? 'client'}
         onClose={() => setCancelDialog(null)}
-        onConfirm={(reason) => {
-          handleCancel(reason)
-          setCancelDialog(null)
-        }}
+        onConfirm={(reason) => handleCancel(reason)}
+      />
+
+      <RefundModal
+        open={!!refundDialog}
+        title={refundDialog?.title ?? ''}
+        amount={refundDialog?.amount ?? 0}
+        onClose={() => setRefundDialog(null)}
+        onConfirm={handleRefundRequest}
       />
     </div>
   )

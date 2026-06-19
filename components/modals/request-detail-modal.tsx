@@ -121,14 +121,32 @@ export default function RequestDetailModal({ request, currentUserId, onClose, on
 
             {/* Footer */}
             <div className="px-6 py-4">
-              <Button
-                className="w-full h-12 bg-gray-900 hover:bg-gray-700 text-white rounded-xl gap-2"
-                disabled={isOwn}
-                onClick={onHubungi}
-              >
-                <MessageCircle className="w-4 h-4" />
-                {isOwn ? 'Ini request milikmu' : 'Hubungi Requester'}
-              </Button>
+              {isOwn ? (
+                <Button className="w-full h-12 rounded-xl" disabled>
+                  Ini request milikmu
+                </Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-12 w-12 shrink-0 rounded-xl border-gray-200"
+                    onClick={() => {
+                      const msg = encodeURIComponent(
+                        `Halo kak ${request.profiles?.full_name}, aku tertarik untuk mengerjakan request "${request.title}" di SkillSwap.`
+                      )
+                      window.open(`https://wa.me/${request.profiles?.whatsapp}?text=${msg}`, '_blank')
+                    }}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    className="flex-1 h-12 bg-[#FF6647] hover:bg-[#e5583d] text-white rounded-xl"
+                    onClick={onHubungi}
+                  >
+                    Ambil Request
+                  </Button>
+                </div>
+              )}
             </div>
           </motion.div>
         </motion.div>

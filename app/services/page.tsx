@@ -75,7 +75,7 @@ export default function ServicesPage() {
       .eq('is_available', true)
       .order('created_at', { ascending: false })
 
-    if (!error && data) setServices(data as Service[])
+    if (!error && data) setServices(data as unknown as Service[])
     setLoading(false)
   }
 
@@ -101,37 +101,47 @@ export default function ServicesPage() {
       .single()
     const clientName = clientProfile?.full_name ?? 'Client'
 
+    // Check for existing active order (unpaid or paid)
     const { data: existingOrder } = await supabase
       .from('orders')
-      .select('id')
+      .select('id, payment_status')
       .eq('service_id', selectedService.id)
       .eq('client_id', currentUserId)
-      .eq('status', 'ongoing')
+      .in('status', ['ongoing', 'need_review'])
       .single()
 
-    if (!existingOrder) {
-      const { error } = await supabase
-        .from('orders')
-        .insert({
-          service_id: selectedService.id,
-          client_id: currentUserId,
-          provider_id: selectedService.profiles?.id,
-          status: 'ongoing',
-        })
-
-      if (!error && selectedService.profiles?.id) {
-        await notifyNewOrder(
-          selectedService.profiles.id,
-          clientName,
-          selectedService.title
-        )
+    if (existingOrder) {
+      // Already has an order — go to payment page if unpaid, else dashboard
+      if (existingOrder.payment_status !== 'paid') {
+        router.push(`/payment/${existingOrder.id}`)
+      } else {
+        router.push('/dashboard/requester')
       }
+      setConfirmDialog(false)
+      return
     }
 
-    const msg = encodeURIComponent(
-      `Halo kak ${selectedService.profiles?.full_name}, aku tertarik dengan jasa "${selectedService.title}" di SkillSwap.`
-    )
-    window.open(`https://wa.me/${selectedService.profiles?.whatsapp}?text=${msg}`, '_blank')
+    const { data: newOrder, error } = await supabase
+      .from('orders')
+      .insert({
+        service_id: selectedService.id,
+        client_id: currentUserId,
+        provider_id: selectedService.profiles?.id,
+        status: 'ongoing',
+        payment_status: 'unpaid',
+      })
+      .select('id')
+      .single()
+
+    if (!error && newOrder) {
+      await notifyNewOrder(
+        selectedService.profiles?.id ?? '',
+        clientName,
+        selectedService.title
+      )
+      router.push(`/payment/${newOrder.id}`)
+    }
+
     setConfirmDialog(false)
   }
 
@@ -178,7 +188,7 @@ export default function ServicesPage() {
               onClick={() => setActiveCategory(cat)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all border ${
                 activeCategory === cat
-                  ? 'bg-gray-900 text-white border-gray-900'
+                  ? 'bg-[#074DDB] text-white border-[#074DDB]'
                   : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
               }`}
             >
@@ -204,7 +214,7 @@ export default function ServicesPage() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.4, delay: i * 0.06 }}
-                  className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all cursor-pointer"
+                  className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-5 hover:shadow-md transition-all cursor-pointer"
                   onClick={() => setSelectedService(service)}
                 >
                   {/* Provider */}
@@ -267,7 +277,7 @@ export default function ServicesPage() {
       {/* Floating Button */}
       <button
         onClick={() => setShowNewServiceModal(true)}
-        className="fixed bottom-8 right-8 flex items-center gap-2 px-5 py-3 bg-gray-900 text-white rounded-full font-medium shadow-lg hover:bg-gray-700 transition-colors"
+        className="fixed bottom-8 right-8 flex items-center gap-2 px-5 py-3 bg-[#FF6647] text-white rounded-full font-medium shadow-lg hover:bg-[#e5583d] transition-colors"
       >
         <Plus className="w-4 h-4" />
         Tawarkan Service
@@ -296,9 +306,9 @@ export default function ServicesPage() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white/80 backdrop-blur-md border border-white/40 rounded-2xl p-6 w-full max-w-sm shadow-xl"
             >
-              <h3 className="font-bold text-lg mb-2">Hubungi Provider?</h3>
+              <h3 className="font-bold text-lg mb-2">Pesan Jasa Ini?</h3>
               <p className="text-sm text-gray-500 mb-6">
-                Kamu akan diarahkan ke WhatsApp dan sesi order akan dimulai. Pastikan kamu serius untuk menggunakan jasa ini.
+                Kamu akan diarahkan ke halaman pembayaran. Setelah bayar, kamu bisa langsung hubungi provider via WhatsApp.
               </p>
               <div className="flex gap-3">
                 <Button
@@ -309,10 +319,10 @@ export default function ServicesPage() {
                   Batal
                 </Button>
                 <Button
-                  className="flex-1 bg-gray-900 hover:bg-gray-700 text-white rounded-xl"
+                  className="flex-1 bg-[#FF6647] hover:bg-[#e5583d] text-white rounded-xl"
                   onClick={handleHubungi}
                 >
-                  Ya, Hubungi
+                  Ya, Pesan
                 </Button>
               </div>
             </motion.div>

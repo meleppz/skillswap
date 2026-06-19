@@ -62,7 +62,7 @@ export default function RequestsPage() {
       .eq('status', 'active')
       .order('created_at', { ascending: false })
 
-    if (!error && data) setRequests(data as Request[])
+    if (!error && data) setRequests(data as unknown as Request[])
     setLoading(false)
   }
 
@@ -163,7 +163,7 @@ export default function RequestsPage() {
               onClick={() => setActiveCategory(cat)}
               className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all border ${
                 activeCategory === cat
-                  ? 'bg-gray-900 text-white border-gray-900'
+                  ? 'bg-[#074DDB] text-white border-[#074DDB]'
                   : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
               }`}
             >
@@ -187,7 +187,7 @@ export default function RequestsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: i * 0.06 }}
-                className="bg-white border border-gray-200 rounded-2xl p-5 hover:shadow-md transition-all cursor-pointer"
+                className="bg-white/80 backdrop-blur-sm border border-gray-100 rounded-2xl p-5 hover:shadow-md transition-all cursor-pointer"
                 onClick={() => setSelectedRequest(request)}
               >
                 {/* Requester */}
@@ -246,7 +246,7 @@ export default function RequestsPage() {
       {/* Floating Button */}
       <button
         onClick={() => setShowNewRequestModal(true)}
-        className="fixed bottom-8 right-8 flex items-center gap-2 px-5 py-3 bg-gray-900 text-white rounded-full font-medium shadow-lg hover:bg-gray-700 transition-colors"
+        className="fixed bottom-8 right-8 flex items-center gap-2 px-5 py-3 bg-[#FF6647] text-white rounded-full font-medium shadow-lg hover:bg-[#e5583d] transition-colors"
       >
         <Plus className="w-4 h-4" />
         Tambahkan Request
@@ -288,10 +288,10 @@ export default function RequestsPage() {
                   Batal
                 </Button>
                 <Button
-                  className="flex-1 bg-gray-900 hover:bg-gray-700 text-white rounded-xl"
+                  className="flex-1 bg-[#FF6647] hover:bg-[#e5583d] text-white rounded-xl"
                   onClick={handleHubungi}
                 >
-                  Ya, Hubungi
+                  Ya, Kerjakan
                 </Button>
               </div>
             </motion.div>

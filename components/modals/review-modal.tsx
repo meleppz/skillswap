@@ -141,7 +141,7 @@ export default function ReviewModal({
                   Tambah Gambar
                 </Button>
                 <Button
-                  className="w-full h-12 bg-gray-700 hover:bg-gray-900 text-white rounded-xl"
+                  className="w-full h-12 bg-[#FF6647] hover:bg-[#e5583d] text-white rounded-xl"
                   disabled={rating === 0}
                   onClick={() => {
                     onSubmit(orderId, rating, comment)

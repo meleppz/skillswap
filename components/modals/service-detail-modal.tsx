@@ -170,18 +170,34 @@ export default function ServiceDetailModal({ service, currentUserId, onClose, on
 
             {/* Footer */}
             <div className="px-6 py-4">
-              <Button
-                className="w-full h-12 bg-gray-900 hover:bg-gray-700 text-white rounded-xl gap-2"
-                disabled={!service.is_available || isOwn}
-                onClick={onHubungi}
-              >
-                <MessageCircle className="w-4 h-4" />
-                {isOwn
-                  ? 'Ini jasa milikmu'
-                  : service.is_available
-                  ? 'Hubungi Provider'
-                  : 'Tidak Tersedia'}
-              </Button>
+              {isOwn ? (
+                <Button className="w-full h-12 rounded-xl" disabled>
+                  Ini jasa milikmu
+                </Button>
+              ) : (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-12 w-12 shrink-0 rounded-xl border-gray-200"
+                    disabled={!service.is_available}
+                    onClick={() => {
+                      const msg = encodeURIComponent(
+                        `Halo kak ${service.profiles?.full_name}, aku tertarik dengan jasa "${service.title}" di SkillSwap.`
+                      )
+                      window.open(`https://wa.me/${service.profiles?.whatsapp}?text=${msg}`, '_blank')
+                    }}
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    className="flex-1 h-12 bg-[#FF6647] hover:bg-[#e5583d] text-white rounded-xl"
+                    disabled={!service.is_available}
+                    onClick={onHubungi}
+                  >
+                    {service.is_available ? 'Pesan Sekarang' : 'Tidak Tersedia'}
+                  </Button>
+                </div>
+              )}
             </div>
           </motion.div>
         </motion.div>

@@ -139,7 +139,7 @@ export default function OrdersPage() {
           reviewed: reviewedOrderIds.has(o.id),
         }))
 
-        setOrders(ordersWithReview as Order[])
+        setOrders(ordersWithReview as unknown as Order[])
       }
 
       setLoading(false)

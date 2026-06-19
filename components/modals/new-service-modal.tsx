@@ -147,7 +147,7 @@ export default function NewServiceModal({ open, onClose, onSuccess }: Props) {
                       onClick={() => setForm({ ...form, category: cat })}
                       className={`px-3 py-1.5 rounded-full text-sm border transition-all ${
                         form.category === cat
-                          ? 'bg-gray-900 text-white border-gray-900'
+                          ? 'bg-[#074DDB] text-white border-[#074DDB]'
                           : 'bg-white/60 text-gray-600 border-gray-200 hover:border-gray-400'
                       }`}
                     >
@@ -213,7 +213,7 @@ export default function NewServiceModal({ open, onClose, onSuccess }: Props) {
               <button
                 onClick={handleSubmit}
                 disabled={loading}
-                className="w-full py-3.5 bg-gray-800 text-white rounded-xl font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
+                className="w-full py-3.5 bg-[#FF6647] text-white rounded-xl font-medium hover:bg-[#e5583d] transition-colors disabled:opacity-50"
               >
                 {loading ? 'Menyimpan...' : 'Tambah Service Baru'}
               </button>

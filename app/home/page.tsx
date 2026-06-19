@@ -71,7 +71,7 @@ export default function HomePage() {
       .eq('is_available', true)
       .order('created_at', { ascending: false })
 
-    if (!error && data) setServices(data as Service[])
+    if (!error && data) setServices(data as unknown as Service[])
     setLoading(false)
   }
 
